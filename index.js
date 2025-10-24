@@ -53,9 +53,7 @@ const job = require("./route/job");
 const employer = require("./route/employer");
 const application = require("./route/application");
 const admin = require("./route/admin");
-const order = require("./route/order");
 const quote = require("./route/quote");
-const adminServices = require("./route/admin-services");
 
 app.use("/api/v1", user);
 app.use("/api/v1", upload);
@@ -63,9 +61,7 @@ app.use("/api/v1", job);
 app.use("/api/v1", employer);
 app.use("/api/v1", application);
 app.use("/api/v1", admin);
-app.use("/api/v1", order);
 app.use("/api/v1", quote);
-app.use("/api/v1", adminServices);
 app.listen(PORT, () => {
   console.log(`App is Listening at ${PORT}`);
 });

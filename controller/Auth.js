@@ -1,9 +1,11 @@
 const User = require("../model/UserSchemas");
 const Employer = require("../model/EmployerSchema");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const { sendPasswordResetEmail, sendWelcomeEmail } = require("../services/emailService");
 require("dotenv").config();
 
-// Signup route
+
 exports.signup = async (req, res) => {
   try {
     const { email, password, role, ...otherData } = req.body;
@@ -39,7 +41,14 @@ exports.signup = async (req, res) => {
 
     await newUser.save();
 
-    // Generate JWT token
+    sendWelcomeEmail(
+      email, 
+      newUser.name || newUser.fullName || email.split('@')[0], 
+      newUser.role
+    ).catch(error => {
+      console.error('Failed to send welcome email:', error);
+    });
+
     const token = jwt.sign(
       { 
         id: newUser._id,
@@ -49,7 +58,7 @@ exports.signup = async (req, res) => {
       { expiresIn: "1d" }
     );
 
-    // Get public profile (excludes password)
+   
     const userProfile = newUser.getPublicProfile();
 
     res.status(201).json({
@@ -75,14 +84,12 @@ exports.login = async (req, res) => {
   try {
     const { email, password, role } = req.body;
     
-    // Validate role
     if (role !== "jobseeker" && role !== "employer") {
       return res.status(400).json({ 
         message: "Role must be either 'jobseeker' or 'employer'" 
       });
     }
 
-    // Validate role
     if (role !== "jobseeker" && role !== "employer") {
       return res.status(400).json({ 
         message: "Role must be either 'jobseeker' or 'employer'" 
@@ -96,6 +103,14 @@ exports.login = async (req, res) => {
     if (!user) {
       return res.status(401).json({ 
         message: "Invalid credentials" 
+      });
+    }
+
+    // Check if user is blocked
+    if (user.loginStatus === 'blocked') {
+      return res.status(403).json({ 
+        message: "Your account has been blocked. Please contact support.",
+        blocked: true 
       });
     }
 
@@ -614,6 +629,182 @@ exports.checkProfileEligibility = async (req, res) => {
       success: false,
       message: "Failed to check profile eligibility",
       error: error.message 
+    });
+  }
+};
+
+// Forgot Password - Send reset email
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required"
+      });
+    }
+
+    // Find user in both collections
+    let user = await User.findOne({ email });
+    let userRole = 'jobseeker';
+    
+    if (!user) {
+      user = await Employer.findOne({ email });
+      userRole = 'employer';
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email address"
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // Save reset token to user
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpiry = resetTokenExpiry;
+    await user.save();
+
+    // Send password reset email
+    const emailResult = await sendPasswordResetEmail(
+      email, 
+      resetToken, 
+      user.name || user.fullName || 'User'
+    );
+
+    if (!emailResult.success) {
+      console.error('Failed to send password reset email:', emailResult.error);
+      // Still return success to user for security (don't reveal if email exists)
+      return res.status(200).json({
+        success: true,
+        message: "Password reset link sent to your email",
+        // In development, also return the URL for testing
+        resetUrl: process.env.NODE_ENV === 'development' ? 
+          `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}` : 
+          undefined
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Password reset link sent to your email",
+      // In development, also return the URL for testing
+      resetUrl: process.env.NODE_ENV === 'development' ? 
+        `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}` : 
+        undefined
+    });
+
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to process password reset request",
+      error: error.message
+    });
+  }
+};
+
+// Validate Reset Token
+exports.validateResetToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Reset token is required"
+      });
+    }
+
+    // Find user with valid reset token
+    let user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpiry: { $gt: new Date() }
+    });
+
+    if (!user) {
+      user = await Employer.findOne({
+        resetPasswordToken: token,
+        resetPasswordExpiry: { $gt: new Date() }
+      });
+    }
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Reset token is valid"
+    });
+
+  } catch (error) {
+    console.error("Validate reset token error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to validate reset token",
+      error: error.message
+    });
+  }
+};
+
+// Reset Password
+exports.resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Token and password are required"
+      });
+    }
+
+    // Find user with valid reset token
+    let user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpiry: { $gt: new Date() }
+    });
+
+    if (!user) {
+      user = await Employer.findOne({
+        resetPasswordToken: token,
+        resetPasswordExpiry: { $gt: new Date() }
+      });
+    }
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token"
+      });
+    }
+
+    // Update password and clear reset token
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpiry = undefined;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Password has been reset successfully"
+    });
+
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to reset password",
+      error: error.message
     });
   }
 };

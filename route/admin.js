@@ -45,7 +45,7 @@ router.get("/admin/users/:userType", async (req, res) => {
       // Get jobseekers with pagination and sorting
       [users, totalCount] = await Promise.all([
         FindrUser.find(searchQuery)
-          .select('_id name fullName email phoneNumber location nationality professionalExperience profilePicture createdAt updatedAt')
+          .select('_id name fullName email phoneNumber location nationality professionalExperience profilePicture loginStatus createdAt updatedAt')
           .sort({ [sortBy]: sortDirection })
           .skip(skip)
           .limit(parseInt(limit))
@@ -66,7 +66,7 @@ router.get("/admin/users/:userType", async (req, res) => {
         yearsOfExperience: user.professionalExperience?.[0]?.yearsOfExperience || 0,
         industry: user.professionalExperience?.[0]?.industry || 'N/A',
         profileUrl: `/candidate/${user._id}`,
-        status: 'active', // You can add a status field to your schema if needed
+        loginStatus: user.loginStatus || 'active',
         profileImage: user.profilePicture || '',
         joinedDate: user.createdAt,
         lastActive: user.updatedAt
@@ -88,7 +88,7 @@ router.get("/admin/users/:userType", async (req, res) => {
       // Get employers with pagination and sorting
       [users, totalCount] = await Promise.all([
         Employer.find(searchQuery)
-          .select('_id companyName email companyEmail phoneNumber website industry teamSize foundedYear companyLocation companyLogo verificationStatus createdAt updatedAt')
+          .select('_id companyName email companyEmail phoneNumber website industry teamSize foundedYear companyLocation companyLogo verificationStatus loginStatus createdAt updatedAt')
           .sort({ [sortBy]: sortDirection })
           .skip(skip)
           .limit(parseInt(limit))
@@ -99,7 +99,7 @@ router.get("/admin/users/:userType", async (req, res) => {
       // Transform employer data to match frontend expectations
       users = users.map(employer => ({
         id: employer._id.toString(),
-        companyName: employer.companyName || 'N/A',
+        companyName: employer.companyName ,
         companyEmail: employer.companyEmail || employer.email,
         phoneNumber: employer.phoneNumber || 'N/A',
         website: employer.website || 'N/A',
@@ -108,8 +108,8 @@ router.get("/admin/users/:userType", async (req, res) => {
         foundedYear: employer.foundedYear || 'N/A',
         location: employer.companyLocation || 'N/A',
         profileUrl: `/employer/profile/${employer._id}`,
-        status: employer.verificationStatus === 'verified' ? 'active' : 'pending',
-        companyLogo: employer.companyLogo || '',
+        loginStatus: employer.loginStatus ,
+        companyLogo: employer.companyLogo ,
         joinedDate: employer.createdAt,
         lastActive: employer.updatedAt
       }));

@@ -25,3 +25,4 @@ router.get("/quotes/:id", authMiddleware, getQuoteRequest);
 router.put("/quotes/:id", authMiddleware, updateQuoteRequest);
 
 module.exports = router;
+

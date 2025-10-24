@@ -13,6 +13,14 @@ const findrUserSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    resetPasswordToken: {
+      type: String,
+      default: undefined,
+    },
+    resetPasswordExpiry: {
+      type: Date,
+      default: undefined,
+    },
     role: {
       type: String,
       enum: ["jobseeker", "employer"],
@@ -130,7 +138,7 @@ const findrUserSchema = new mongoose.Schema(
     jobPreferences: {
       preferredJobType: {
         type: [String],
-        enum: ["Full Time", "Part Time", "Contract", "Remote", "Hybrid"],
+        enum: ["Full Time", "Part Time", "Contract", "Remote", "Hybrid", "full-time", "part-time", "contract", "remote", "hybrid"],
         default: [],
       },
       salaryExpectation: { type: String, trim: true, default: "" },
@@ -210,6 +218,11 @@ const findrUserSchema = new mongoose.Schema(
     points: { type: Number, default: 0 },
     deductedPoints: { type: Number, default: 0 }, // Track points deducted from orders
     membershipTier: { type: String, default: "Blue", enum: ["Blue", "Silver", "Gold", "Platinum"] },
+    loginStatus: { 
+      type: String, 
+      default: "active", 
+      enum: ["active", "blocked"] 
+    },
   },
   { timestamps: true }
 );

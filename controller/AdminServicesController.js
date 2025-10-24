@@ -21,15 +21,10 @@ const getAllServices = async (req, res) => {
     let filter = {
       orders: { $exists: true, $ne: [] } // Only users who have orders
     };
-    
-    // Filter by status
-    if (status && status !== 'all') {
-      filter['orders.status'] = status;
-    }
 
     // Filter by buyer type (jobseeker or employer)
     if (buyerType && buyerType !== 'all') {
-      filter.userType = buyerType;
+      filter.role = buyerType;
     }
 
     // Search filter
@@ -51,17 +46,39 @@ const getAllServices = async (req, res) => {
       sort.createdAt = sortOrder === 'desc' ? -1 : 1;
     }
 
+    // Debug logging
+    console.log('Filter:', JSON.stringify(filter, null, 2));
+    
+    // First, let's check if there are any users with orders at all
+    const allUsersWithOrders = await User.find({ orders: { $exists: true, $ne: [] } })
+      .select('fullName companyName email role orders createdAt');
+    console.log('All users with orders:', allUsersWithOrders.length);
+    console.log('All users with orders details:', allUsersWithOrders.map(u => ({ 
+      name: u.fullName, 
+      role: u.role, 
+      ordersCount: u.orders?.length || 0,
+      orders: u.orders
+    })));
+    
     // Get users with orders
     const users = await User.find(filter)
-      .select('fullName companyName email userType orders createdAt')
+      .select('fullName companyName email role orders createdAt')
       .sort(sort)
       .skip(skip)
       .limit(limitNum);
+    
+    console.log('Found users with filter:', users.length);
+    console.log('Users with orders:', users.map(u => ({ 
+      name: u.fullName, 
+      role: u.role, 
+      ordersCount: u.orders?.length || 0 
+    })));
 
     // Flatten orders and add user info
     let allServices = [];
     users.forEach(user => {
       if (user.orders && user.orders.length > 0) {
+        console.log(`Processing user ${user.fullName} with ${user.orders.length} orders`);
         user.orders.forEach(order => {
           // Map order data properly for RM Service and other services
           const serviceName = order.serviceName || order.service || 'RM Service';
@@ -71,11 +88,11 @@ const getAllServices = async (req, res) => {
           const amount = order.amount || order.price || 0;
           const description = order.description || `${serviceName} - Premium service order`;
 
-          allServices.push({
+          const serviceData = {
             _id: order._id,
             id: order._id.toString(),
             buyerName: user.fullName || user.companyName || 'Unknown',
-            buyerType: user.userType || 'jobseeker',
+            buyerType: user.role || 'jobseeker',
             serviceName: serviceName,
             serviceType: serviceType,
             orderDate: orderDate,
@@ -85,10 +102,15 @@ const getAllServices = async (req, res) => {
             orderUrl: `/admin/services/${order._id}`,
             userEmail: user.email,
             userId: user._id
-          });
+          };
+          
+          console.log('Adding service:', serviceData);
+          allServices.push(serviceData);
         });
       }
     });
+    
+    console.log('Total services before filtering:', allServices.length);
 
     // Apply additional filters to flattened data
     if (status && status !== 'all') {
@@ -120,6 +142,10 @@ const getAllServices = async (req, res) => {
 
     // Paginate the results
     const paginatedServices = allServices.slice(0, limitNum);
+    
+    console.log('Final result - Total services:', totalServices);
+    console.log('Final result - Paginated services:', paginatedServices.length);
+    console.log('Final result - Services:', paginatedServices);
 
     res.json({
       success: true,

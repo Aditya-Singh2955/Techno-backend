@@ -13,6 +13,14 @@ const employerSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    resetPasswordToken: {
+      type: String,
+      default: undefined,
+    },
+    resetPasswordExpiry: {
+      type: Date,
+      default: undefined,
+    },
     role: {
       type: String,
       default: "employer",
@@ -177,6 +185,11 @@ const employerSchema = new mongoose.Schema(
       default: []
     },
     membershipTier: { type: String, default: "Blue", enum: ["Blue", "Silver", "Gold", "Platinum"] },
+    loginStatus: { 
+      type: String, 
+      default: "active", 
+      enum: ["active", "blocked"] 
+    },
     notifications: {
       email: {
         applications: { type: Boolean, default: true },
