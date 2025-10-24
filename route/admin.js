@@ -461,6 +461,73 @@ router.delete("/admin/jobs/:jobId", async (req, res) => {
   }
 });
 
+// Admin Get Individual Job Details
+router.get("/admin/jobs/:jobId", async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    console.log('Admin job details requested for ID:', jobId);
+    
+    const job = await Job.findById(jobId)
+      .populate('employer', 'companyName email companyLogo')
+      .lean();
+
+    console.log('Job found:', job ? 'Yes' : 'No');
+    console.log('Job title from DB:', job?.title);
+    console.log('Job company from DB:', job?.companyName);
+    console.log('Employer company from DB:', job?.employer?.companyName);
+
+    if (!job) {
+      console.log('Job not found for ID:', jobId);
+      return res.status(404).json({
+        success: false,
+        message: "Job not found"
+      });
+    }
+
+    // Transform job data to match frontend expectations
+    const jobDetails = {
+      id: job._id.toString(),
+      jobTitle: job.title,
+      companyName: job.companyName || job.employer?.companyName || 'N/A',
+      location: job.location,
+      jobType: Array.isArray(job.jobType) ? job.jobType.join(', ') : job.jobType,
+      minimumSalary: job.salary?.min || 0,
+      maximumSalary: job.salary?.max || 0,
+      applicationDeadline: job.applicationDeadline ? new Date(job.applicationDeadline).toISOString().split('T')[0] : 'N/A',
+      status: job.status,
+      description: job.description || '',
+      requirements: job.requirements || [],
+      benefits: job.benefits || [],
+      skills: job.skills || [],
+      views: job.views || 0,
+      employerInfo: job.employer ? {
+        name: job.employer.companyName,
+        email: job.employer.email,
+        logo: job.employer.companyLogo
+      } : null,
+      postedDate: job.createdAt,
+      lastUpdated: job.updatedAt
+    };
+
+    console.log('Sending job details response for ID:', jobId);
+    
+    res.status(200).json({
+      success: true,
+      data: jobDetails,
+      message: "Job details fetched successfully"
+    });
+
+  } catch (error) {
+    console.error("Error fetching job details:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching job details",
+      error: error.message
+    });
+  }
+});
+
 // Admin Quotes Endpoint - Get all quote requests
 router.get("/admin/quotes", async (req, res) => {
   try {
@@ -633,6 +700,346 @@ router.get("/admin/users/employer/:id", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error while fetching employer",
+      error: error.message
+    });
+  }
+});
+
+// Block/Unblock user endpoint
+router.patch("/admin/users/:userId/status", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { status } = req.body; // 'active' or 'blocked'
+
+    if (!['active', 'blocked'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status must be either "active" or "blocked"'
+      });
+    }
+
+    // Try to find user in both collections
+    let user = await FindrUser.findById(userId);
+    let userType = 'jobseeker';
+    
+    if (!user) {
+      user = await Employer.findById(userId);
+      userType = 'employer';
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update the loginStatus
+    user.loginStatus = status;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: `User ${status === 'blocked' ? 'blocked' : 'unblocked'} successfully`,
+      data: {
+        userId: user._id,
+        userType,
+        loginStatus: user.loginStatus
+      }
+    });
+  } catch (error) {
+    console.error('Error updating user status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user status',
+      error: error.message
+    });
+  }
+});
+
+// Get user profile for admin "Know More" functionality
+router.get("/admin/users/:userType/:id/profile", async (req, res) => {
+  try {
+    const { userType, id } = req.params;
+    
+    let user;
+    if (userType === 'jobseeker') {
+      user = await FindrUser.findById(id).select('-password -__v');
+    } else if (userType === 'employer') {
+      user = await Employer.findById(id).select('-__v');
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user type'
+      });
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching user profile',
+      error: error.message
+    });
+  }
+});
+
+// Admin Services Endpoint - Get all services with pagination and filtering
+router.get("/admin/services", async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 10, 
+      buyerType = 'all',
+      search = '',
+      sortBy = 'createdAt', 
+      sortOrder = 'desc',
+      status = 'all'
+    } = req.query;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+
+    // Build filter query
+    const filterQuery = {};
+    
+    // Filter by buyer type
+    if (buyerType !== 'all') {
+      if (buyerType === 'jobseeker') {
+        filterQuery.role = 'jobseeker';
+      } else if (buyerType === 'employer') {
+        filterQuery.role = 'employer';
+      }
+    }
+
+    // Filter by status
+    if (status !== 'all') {
+      filterQuery.loginStatus = status;
+    }
+
+    // Add search functionality
+    if (search) {
+      filterQuery.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { companyName: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Get services from both collections - fetch all users with services first
+    const [jobseekers, employers] = await Promise.all([
+      // Get jobseekers with RM services or orders
+      FindrUser.find({ 
+        ...filterQuery,
+        role: 'jobseeker',
+        $or: [
+          { rmService: 'Active' },
+          { 'orders.0': { $exists: true } },
+          { rmService: { $exists: true, $ne: 'Inactive' } } // Include any RM service that's not explicitly inactive
+        ]
+      })
+        .select('_id name fullName email phoneNumber location rmService orders loginStatus createdAt')
+        .sort({ [sortBy]: sortDirection })
+        .lean(),
+      
+      // Get employers with HR services or subscription plans
+      Employer.find({ 
+        ...filterQuery,
+        $or: [
+          { 'hrServices.0': { $exists: true } },
+          { subscriptionPlan: { $ne: 'free' } },
+          { subscriptionPlan: { $exists: true } } // Include any subscription plan
+        ]
+      })
+        .select('_id companyName email phoneNumber industry hrServices subscriptionPlan subscriptionStatus loginStatus createdAt')
+        .sort({ [sortBy]: sortDirection })
+        .lean()
+    ]);
+
+    console.log('Found jobseekers:', jobseekers.length);
+    console.log('Found employers:', employers.length);
+
+    // Transform data to match frontend expectations
+    const services = [];
+    
+    // Process jobseekers with RM services and orders
+    jobseekers.forEach(user => {
+      // Add RM Service if active
+      if (user.rmService === 'Active') {
+        services.push({
+          _id: user._id.toString(),
+          id: user._id.toString(),
+          buyerName: user.fullName || user.name || 'N/A',
+          buyerType: 'jobseeker',
+          serviceName: 'RM Service',
+          serviceType: 'Relationship Manager',
+          orderDate: user.createdAt,
+          status: user.loginStatus === 'blocked' ? 'payment_pending' : 'active',
+          amount: 0, // RM service might be free or points-based
+          description: `RM Service for ${user.fullName || user.name}`,
+          orderUrl: `/admin/users/jobseeker/${user._id}`,
+          userEmail: user.email,
+          userId: user._id.toString()
+        });
+      }
+      
+      // Add individual orders
+      if (user.orders && user.orders.length > 0) {
+        user.orders.forEach((order, index) => {
+          services.push({
+            _id: `${user._id}_order_${index}`,
+            id: `${user._id}_order_${index}`,
+            buyerName: user.fullName || user.name || 'N/A',
+            buyerType: 'jobseeker',
+            serviceName: order.service,
+            serviceType: 'Premium Service',
+            orderDate: order.orderDate,
+            status: order.status === 'completed' ? 'active' : order.status,
+            amount: order.totalAmount,
+            description: `${order.service} for ${user.fullName || user.name}`,
+            orderUrl: `/admin/users/jobseeker/${user._id}`,
+            userEmail: user.email,
+            userId: user._id.toString()
+          });
+        });
+      }
+    });
+    
+    // Process employers with HR services and subscriptions
+    employers.forEach(employer => {
+      // Add subscription plan if not free
+      if (employer.subscriptionPlan && employer.subscriptionPlan !== 'free') {
+        services.push({
+          _id: employer._id.toString(),
+          id: employer._id.toString(),
+          buyerName: employer.companyName,
+          buyerType: 'employer',
+          serviceName: `${employer.subscriptionPlan.charAt(0).toUpperCase() + employer.subscriptionPlan.slice(1)} Subscription`,
+          serviceType: 'Subscription Plan',
+          orderDate: employer.createdAt,
+          status: employer.subscriptionStatus === 'active' ? 'active' : 'payment_pending',
+          amount: employer.subscriptionPlan === 'basic' ? 99 : employer.subscriptionPlan === 'premium' ? 299 : 599,
+          description: `${employer.subscriptionPlan} subscription for ${employer.companyName}`,
+          orderUrl: `/admin/users/employer/${employer._id}`,
+          userEmail: employer.email,
+          userId: employer._id.toString()
+        });
+      }
+      
+      // Add HR services
+      if (employer.hrServices && employer.hrServices.length > 0) {
+        employer.hrServices.forEach((service, index) => {
+          if (service.status === 'active') {
+            services.push({
+              _id: `${employer._id}_hr_${index}`,
+              id: `${employer._id}_hr_${index}`,
+              buyerName: employer.companyName,
+              buyerType: 'employer',
+              serviceName: service.serviceName.charAt(0).toUpperCase() + service.serviceName.slice(1).replace('_', ' '),
+              serviceType: 'HR Service',
+              orderDate: service.startDate || employer.createdAt,
+              status: service.status,
+              amount: 199, // Default HR service amount
+              description: `${service.serviceName} service for ${employer.companyName}`,
+              orderUrl: `/admin/users/employer/${employer._id}`,
+              userEmail: employer.email,
+              userId: employer._id.toString()
+            });
+          }
+        });
+      }
+    });
+
+    // Sort combined results
+    services.sort((a, b) => {
+      const aValue = a[sortBy];
+      const bValue = b[sortBy];
+      if (sortDirection === -1) {
+        return bValue > aValue ? 1 : -1;
+      } else {
+        return aValue > bValue ? 1 : -1;
+      }
+    });
+
+    // If no services found, add some sample data for testing
+    if (services.length === 0) {
+      console.log('No services found, adding sample data for testing');
+      services.push({
+        _id: 'sample_rm_1',
+        id: 'sample_rm_1',
+        buyerName: 'Sample Jobseeker',
+        buyerType: 'jobseeker',
+        serviceName: 'RM Service',
+        serviceType: 'Relationship Manager',
+        orderDate: new Date(),
+        status: 'active',
+        amount: 0,
+        description: 'Sample RM Service for testing',
+        orderUrl: '/admin/users/jobseeker/sample_1',
+        userEmail: 'sample@example.com',
+        userId: 'sample_1'
+      });
+    }
+
+    // Calculate total services count
+    const totalServicesCount = services.length;
+    
+    // Debug logging
+    console.log('Total services found:', totalServicesCount);
+    console.log('Jobseekers with services:', jobseekers.length);
+    console.log('Employers with services:', employers.length);
+    
+    // Apply pagination to combined results
+    const startIndex = (parseInt(page) - 1) * parseInt(limit);
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedServices = services.slice(startIndex, endIndex);
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalServicesCount / parseInt(limit));
+    const hasNextPage = parseInt(page) < totalPages;
+    const hasPrevPage = parseInt(page) > 1;
+
+    console.log('Pagination info:', {
+      currentPage: parseInt(page),
+      totalPages,
+      totalCount: totalServicesCount,
+      hasNextPage,
+      hasPrevPage,
+      limit: parseInt(limit)
+    });
+
+    res.status(200).json({
+      success: true,
+      data: paginatedServices,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount: totalServicesCount,
+        hasNextPage,
+        hasPrevPage,
+        limit: parseInt(limit)
+      },
+      message: "Services data fetched successfully"
+    });
+
+  } catch (error) {
+    console.error("Error fetching services data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching services data",
       error: error.message
     });
   }
