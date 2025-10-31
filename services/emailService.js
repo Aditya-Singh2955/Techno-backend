@@ -2,11 +2,16 @@ const nodemailer = require('nodemailer');
 
 // Create transporter
 const createTransporter = () => {
-  return nodemailer.createTransporter({
-    service: 'gmail', // You can change this to other services like 'outlook', 'yahoo', etc.
+  return nodemailer.createTransport({
+    host: 'smtp.office365.com',
+    port: 587, // Outlook uses 587 for TLS
+    secure: false, // use TLS
     auth: {
-      user: process.env.EMAIL_USER, // Your email
-      pass: process.env.EMAIL_PASS  // Your email password or app password
+      user: process.env.EMAIL_USER, // Your Outlook email
+      pass: process.env.EMAIL_PASS  // Your Outlook app password (if 2FA is enabled)
+    },
+    tls: {
+      ciphers: 'SSLv3'
     }
   });
 };

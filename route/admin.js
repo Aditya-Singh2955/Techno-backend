@@ -537,9 +537,14 @@ router.get("/admin/quotes", async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const sortDirection = sortOrder === 'desc' ? -1 : 1;
 
-    // Build filter query
+    // Build filter query - exclude accepted and completed by default
     const filterQuery = {};
-    if (status) filterQuery.status = status;
+    if (status) {
+      filterQuery.status = status;
+    } else {
+      // Default: show only pending, in_progress, and quoted (not accepted/completed)
+      filterQuery.status = { $in: ['pending', 'in_progress', 'quoted'] };
+    }
     if (priority) filterQuery.priority = priority;
     if (search) {
       filterQuery.$or = [
@@ -593,11 +598,33 @@ router.get("/admin/quotes", async (req, res) => {
   }
 });
 
+// Helper function to map quote service name to HR service enum
+const mapServiceToHREnum = (serviceName) => {
+  const mapping = {
+    'Recruitment & Staffing': 'recruitment',
+    'HR Compliance & Onboarding': 'compliance',
+    'Performance Management': 'performance',
+    'Training & Development': 'training',
+    'Payroll Management': 'payroll',
+    'HR Analytics & Reporting': 'analytics'
+  };
+  return mapping[serviceName] || null;
+};
+
 // Admin Quote Actions Endpoint - Update quote status
 router.put("/admin/quotes/:quoteId", async (req, res) => {
   try {
     const { quoteId } = req.params;
     const { status, adminResponse, priority, note } = req.body;
+
+    // First, get the quote to check employerId and service
+    const existingQuote = await QuoteRequest.findById(quoteId);
+    if (!existingQuote) {
+      return res.status(404).json({
+        success: false,
+        message: "Quote request not found"
+      });
+    }
 
     const updateData = {};
     if (status) updateData.status = status;
@@ -618,6 +645,26 @@ router.put("/admin/quotes/:quoteId", async (req, res) => {
       };
     }
 
+    // If status is being set to 'accepted', always append a new HR service entry for employer
+    if (status === 'accepted' && existingQuote.employerId) {
+      const hrServiceEnum = mapServiceToHREnum(existingQuote.service);
+      if (hrServiceEnum) {
+        const employer = await Employer.findById(existingQuote.employerId);
+        if (employer) {
+          if (!employer.hrServices) {
+            employer.hrServices = [];
+          }
+          employer.hrServices.push({
+            serviceName: hrServiceEnum,
+            status: 'active',
+            startDate: new Date()
+          });
+          employer.markModified('hrServices');
+          await employer.save();
+        }
+      }
+    }
+
     const quote = await QuoteRequest.findByIdAndUpdate(
       quoteId,
       updateData,
@@ -634,7 +681,7 @@ router.put("/admin/quotes/:quoteId", async (req, res) => {
     res.status(200).json({
       success: true,
       data: quote,
-      message: "Quote request updated successfully"
+      message: status === 'accepted' ? "Payment confirmed and HR service activated" : "Quote request updated successfully"
     });
 
   } catch (error) {
@@ -839,34 +886,39 @@ router.get("/admin/services", async (req, res) => {
       ];
     }
 
-    // Get services from both collections - fetch all users with services first
+    // Decide which collections to query based on buyerType
+    const fetchJobseekers = buyerType === 'all' || buyerType === 'jobseeker';
+    const fetchEmployers = buyerType === 'all' || buyerType === 'employer';
+
     const [jobseekers, employers] = await Promise.all([
-      // Get jobseekers with RM services or orders
-      FindrUser.find({ 
-        ...filterQuery,
-        role: 'jobseeker',
-        $or: [
-          { rmService: 'Active' },
-          { 'orders.0': { $exists: true } },
-          { rmService: { $exists: true, $ne: 'Inactive' } } // Include any RM service that's not explicitly inactive
-        ]
-      })
-        .select('_id name fullName email phoneNumber location rmService orders loginStatus createdAt')
-        .sort({ [sortBy]: sortDirection })
-        .lean(),
-      
-      // Get employers with HR services or subscription plans
-      Employer.find({ 
-        ...filterQuery,
-        $or: [
-          { 'hrServices.0': { $exists: true } },
-          { subscriptionPlan: { $ne: 'free' } },
-          { subscriptionPlan: { $exists: true } } // Include any subscription plan
-        ]
-      })
-        .select('_id companyName email phoneNumber industry hrServices subscriptionPlan subscriptionStatus loginStatus createdAt')
-        .sort({ [sortBy]: sortDirection })
-        .lean()
+      fetchJobseekers
+        ? FindrUser.find({ 
+            // force role to jobseeker regardless of outer filterQuery.role
+            ...Object.fromEntries(Object.entries(filterQuery).filter(([k]) => k !== 'role')),
+            role: 'jobseeker',
+            $or: [
+              { rmService: { $exists: true } },
+              { 'orders.0': { $exists: true } }
+            ]
+          })
+            .select('_id name fullName email phoneNumber location rmService orders loginStatus createdAt')
+            .sort({ [sortBy]: sortDirection })
+            .lean()
+        : Promise.resolve([]),
+      fetchEmployers
+        ? Employer.find({ 
+            // ensure we do not carry role filter into employers query
+            ...Object.fromEntries(Object.entries(filterQuery).filter(([k]) => k !== 'role')),
+            $or: [
+              { 'hrServices.0': { $exists: true } },
+              { subscriptionPlan: { $ne: 'free' } },
+              { subscriptionPlan: { $exists: true } }
+            ]
+          })
+            .select('_id companyName email phoneNumber industry hrServices subscriptionPlan subscriptionStatus loginStatus createdAt')
+            .sort({ [sortBy]: sortDirection })
+            .lean()
+        : Promise.resolve([])
     ]);
 
     console.log('Found jobseekers:', jobseekers.length);
@@ -877,8 +929,9 @@ router.get("/admin/services", async (req, res) => {
     
     // Process jobseekers with RM services and orders
     jobseekers.forEach(user => {
-      // Add RM Service if active
-      if (user.rmService === 'Active') {
+      // Add RM Service if it exists (active or inactive)
+      if (user.rmService) {
+        const rmStatus = user.rmService === 'Active' ? 'active' : 'stopped';
         services.push({
           _id: user._id.toString(),
           id: user._id.toString(),
@@ -887,7 +940,7 @@ router.get("/admin/services", async (req, res) => {
           serviceName: 'RM Service',
           serviceType: 'Relationship Manager',
           orderDate: user.createdAt,
-          status: user.loginStatus === 'blocked' ? 'payment_pending' : 'active',
+          status: user.loginStatus === 'blocked' ? 'payment_pending' : rmStatus,
           amount: 0, // RM service might be free or points-based
           description: `RM Service for ${user.fullName || user.name}`,
           orderUrl: `/admin/users/jobseeker/${user._id}`,
@@ -899,6 +952,12 @@ router.get("/admin/services", async (req, res) => {
       // Add individual orders
       if (user.orders && user.orders.length > 0) {
         user.orders.forEach((order, index) => {
+          let orderStatus = order.status;
+          if (order.status === 'completed') {
+            orderStatus = 'active';
+          } else if (order.status === 'stopped' || order.status === 'suspended') {
+            orderStatus = 'stopped';
+          }
           services.push({
             _id: `${user._id}_order_${index}`,
             id: `${user._id}_order_${index}`,
@@ -907,7 +966,7 @@ router.get("/admin/services", async (req, res) => {
             serviceName: order.service,
             serviceType: 'Premium Service',
             orderDate: order.orderDate,
-            status: order.status === 'completed' ? 'active' : order.status,
+            status: orderStatus,
             amount: order.totalAmount,
             description: `${order.service} for ${user.fullName || user.name}`,
             orderUrl: `/admin/users/jobseeker/${user._id}`,
@@ -922,6 +981,12 @@ router.get("/admin/services", async (req, res) => {
     employers.forEach(employer => {
       // Add subscription plan if not free
       if (employer.subscriptionPlan && employer.subscriptionPlan !== 'free') {
+        let subscriptionStatus = 'active';
+        if (employer.subscriptionStatus === 'inactive' || employer.subscriptionStatus === 'expired') {
+          subscriptionStatus = 'stopped';
+        } else if (employer.subscriptionStatus !== 'active') {
+          subscriptionStatus = 'payment_pending';
+        }
         services.push({
           _id: employer._id.toString(),
           id: employer._id.toString(),
@@ -930,7 +995,7 @@ router.get("/admin/services", async (req, res) => {
           serviceName: `${employer.subscriptionPlan.charAt(0).toUpperCase() + employer.subscriptionPlan.slice(1)} Subscription`,
           serviceType: 'Subscription Plan',
           orderDate: employer.createdAt,
-          status: employer.subscriptionStatus === 'active' ? 'active' : 'payment_pending',
+          status: subscriptionStatus,
           amount: employer.subscriptionPlan === 'basic' ? 99 : employer.subscriptionPlan === 'premium' ? 299 : 599,
           description: `${employer.subscriptionPlan} subscription for ${employer.companyName}`,
           orderUrl: `/admin/users/employer/${employer._id}`,
@@ -939,26 +1004,28 @@ router.get("/admin/services", async (req, res) => {
         });
       }
       
-      // Add HR services
+      // Add HR services (active and stopped)
       if (employer.hrServices && employer.hrServices.length > 0) {
         employer.hrServices.forEach((service, index) => {
-          if (service.status === 'active') {
-            services.push({
-              _id: `${employer._id}_hr_${index}`,
-              id: `${employer._id}_hr_${index}`,
-              buyerName: employer.companyName,
-              buyerType: 'employer',
-              serviceName: service.serviceName.charAt(0).toUpperCase() + service.serviceName.slice(1).replace('_', ' '),
-              serviceType: 'HR Service',
-              orderDate: service.startDate || employer.createdAt,
-              status: service.status,
-              amount: 199, // Default HR service amount
-              description: `${service.serviceName} service for ${employer.companyName}`,
-              orderUrl: `/admin/users/employer/${employer._id}`,
-              userEmail: employer.email,
-              userId: employer._id.toString()
-            });
+          let serviceStatus = service.status;
+          if (service.status === 'inactive' || service.status === 'suspended') {
+            serviceStatus = 'stopped';
           }
+          services.push({
+            _id: `${employer._id}_hr_${index}`,
+            id: `${employer._id}_hr_${index}`,
+            buyerName: employer.companyName,
+            buyerType: 'employer',
+            serviceName: service.serviceName.charAt(0).toUpperCase() + service.serviceName.slice(1).replace('_', ' '),
+            serviceType: 'HR Service',
+            orderDate: service.startDate || employer.createdAt,
+            status: serviceStatus,
+            amount: 199, // Default HR service amount
+            description: `${service.serviceName} service for ${employer.companyName}`,
+            orderUrl: `/admin/users/employer/${employer._id}`,
+            userEmail: employer.email,
+            userId: employer._id.toString()
+          });
         });
       }
     });
@@ -974,25 +1041,7 @@ router.get("/admin/services", async (req, res) => {
       }
     });
 
-    // If no services found, add some sample data for testing
-    if (services.length === 0) {
-      console.log('No services found, adding sample data for testing');
-      services.push({
-        _id: 'sample_rm_1',
-        id: 'sample_rm_1',
-        buyerName: 'Sample Jobseeker',
-        buyerType: 'jobseeker',
-        serviceName: 'RM Service',
-        serviceType: 'Relationship Manager',
-        orderDate: new Date(),
-        status: 'active',
-        amount: 0,
-        description: 'Sample RM Service for testing',
-        orderUrl: '/admin/users/jobseeker/sample_1',
-        userEmail: 'sample@example.com',
-        userId: 'sample_1'
-      });
-    }
+    // Do not add any dummy data. Return empty results if none found.
 
     // Calculate total services count
     const totalServicesCount = services.length;
@@ -1040,6 +1089,119 @@ router.get("/admin/services", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error while fetching services data",
+      error: error.message
+    });
+  }
+});
+
+// Admin Service Management - Stop/Resume Services
+router.put("/admin/service-management/:serviceId", async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const { status, userId, buyerType } = req.body;
+
+    if (!['stopped', 'active', 'suspended'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status. Must be 'stopped', 'active', or 'suspended'"
+      });
+    }
+
+    if (buyerType === 'jobseeker') {
+      // Handle jobseeker services (RM Service or orders)
+      const user = await FindrUser.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "Jobseeker not found"
+        });
+      }
+
+      // Check if serviceId matches RM Service
+      if (serviceId === userId) {
+        // This is an RM Service
+        user.rmService = status === 'active' ? 'Active' : 'Inactive';
+        await user.save();
+
+        return res.status(200).json({
+          success: true,
+          message: `RM Service ${status === 'active' ? 'resumed' : 'stopped'} successfully`,
+          data: {
+            serviceId,
+            status: user.rmService
+          }
+        });
+      } else if (serviceId.includes('_order_')) {
+        // This is an order
+        const orderIndex = parseInt(serviceId.split('_order_')[1]);
+        if (user.orders && user.orders[orderIndex]) {
+          user.orders[orderIndex].status = status === 'active' ? 'active' : 'stopped';
+          await user.save();
+
+          return res.status(200).json({
+            success: true,
+            message: `Service ${status === 'active' ? 'resumed' : 'stopped'} successfully`,
+            data: {
+              serviceId,
+              status: user.orders[orderIndex].status
+            }
+          });
+        }
+      }
+    } else if (buyerType === 'employer') {
+      // Handle employer services (HR services or subscriptions)
+      const employer = await Employer.findById(userId);
+      if (!employer) {
+        return res.status(404).json({
+          success: false,
+          message: "Employer not found"
+        });
+      }
+
+      // Check if serviceId matches employer ID (subscription)
+      if (serviceId === userId) {
+        // This is a subscription plan
+        employer.subscriptionStatus = status === 'active' ? 'active' : 'inactive';
+        await employer.save();
+
+        return res.status(200).json({
+          success: true,
+          message: `Subscription ${status === 'active' ? 'resumed' : 'stopped'} successfully`,
+          data: {
+            serviceId,
+            status: employer.subscriptionStatus
+          }
+        });
+      } else if (serviceId.includes('_hr_')) {
+        // This is an HR service
+        const hrIndex = parseInt(serviceId.split('_hr_')[1]);
+        if (employer.hrServices && employer.hrServices[hrIndex]) {
+          employer.hrServices[hrIndex].status = status === 'active' ? 'active' : status === 'suspended' ? 'inactive' : 'inactive';
+          employer.markModified('hrServices');
+          await employer.save();
+
+          return res.status(200).json({
+            success: true,
+            message: `HR Service ${status === 'active' ? 'resumed' : 'stopped'} successfully`,
+            data: {
+              serviceId,
+              status: employer.hrServices[hrIndex].status
+            }
+          });
+        }
+      }
+    }
+
+    return res.status(404).json({
+      success: false,
+      message: "Service not found"
+    });
+
+  } catch (error) {
+    console.error("Error updating service status:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while updating service status",
       error: error.message
     });
   }

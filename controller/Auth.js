@@ -484,7 +484,10 @@ exports.updateProfile = async (req, res) => {
 
     // Calculate percentage and points to match frontend
     const percentage = Math.round((completed / totalFields) * 100);
-    const calculatedPoints = 50 + (percentage * 2); // Base 50 + 2 points per percentage
+    const calculatedPoints = 50 + (percentage * 2); // Base 50 + 2 points per percentage (100% = 250 points)
+    const applicationPoints = updatedUser?.rewards?.applyForJobs || 0; // Points from job applications
+    const rmServicePoints = updatedUser?.rewards?.rmService || 0; // Points from RM service purchase
+    const totalPoints = calculatedPoints + applicationPoints + rmServicePoints;
     const calculatedProfileCompleted = percentage.toString();
 
     // Update the user with calculated points and profile completion
@@ -493,8 +496,8 @@ exports.updateProfile = async (req, res) => {
       {
         $set: {
           'rewards.completeProfile': calculatedPoints,
-          'rewards.totalPoints': calculatedPoints,
-          'points': calculatedPoints,
+          'rewards.totalPoints': totalPoints,
+          'points': totalPoints,
           'profileCompleted': calculatedProfileCompleted
         }
       },

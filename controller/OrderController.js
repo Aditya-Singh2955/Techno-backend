@@ -55,9 +55,12 @@ exports.createOrder = async (req, res) => {
       if (profile?.socialLinks?.twitterX) completed++;
 
       const percentage = Math.round((completed / totalFields) * 100);
-      const points = 50 + percentage * 2; // Base 50 + 2 points per percentage
+      const calculatedPoints = 50 + percentage * 2; // Base 50 + 2 points per percentage (100% = 250 points)
+      const applicationPoints = profile?.rewards?.applyForJobs || 0; // Points from job applications
+      const rmServicePoints = profile?.rewards?.rmService || 0; // Points from RM service purchase
+      const totalPoints = calculatedPoints + applicationPoints + rmServicePoints;
 
-      return points;
+      return totalPoints;
     };
 
     const userPoints = calculateProfilePoints(user);
@@ -92,6 +95,10 @@ exports.createOrder = async (req, res) => {
         "deductedPoints": newDeductedPoints,
         "rmService": "Active" // Activate RM Service
       },
+      $inc: {
+        "rewards.rmService": 100, // Award 100 points for purchasing RM service
+        "rewards.totalPoints": 100 // Add to total points
+      },
       $push: {
         orders: order
       }
@@ -103,7 +110,8 @@ exports.createOrder = async (req, res) => {
       message: "Order placed successfully",
       data: {
         order,
-        remainingPoints: availablePoints
+        remainingPoints: availablePoints + 100, // Add the 100 points awarded
+        pointsAwarded: 100
       }
     });
   } catch (error) {
