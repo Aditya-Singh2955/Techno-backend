@@ -300,8 +300,8 @@ exports.getUserProfileDetails = async (req, res) => {
         nationality: publicProfile.nationality || "",
         emirateId: publicProfile.emirateId || "",
         passportNumber: publicProfile.passportNumber || "",
-        employmentVisa: publicProfile.employmentVisa || "",
         introVideo: publicProfile.introVideo || "",
+        resumeDocument: publicProfile.resumeDocument || "",
         professionalSummary: publicProfile.professionalSummary || "",
         refersLink: publicProfile.refersLink || "",
         referredMember: publicProfile.referredMember || "",
@@ -328,6 +328,8 @@ exports.getUserProfileDetails = async (req, res) => {
           referFriend: publicProfile.rewards?.referFriend || 0,
           totalPoints: publicProfile.rewards?.totalPoints || 0,
         },
+        linkedIn: user.linkedIn || false,
+        instagram: user.instagram || false,
         referralRewardPoints: publicProfile.referralRewardPoints || 0,
         applications: {
           totalApplications: publicProfile.applications?.totalApplications || 0,
@@ -410,7 +412,6 @@ exports.updateProfile = async (req, res) => {
           ...(nationality && { nationality }),
           ...(emirateId && { emirateId }),
           ...(passportNumber && { passportNumber }),
-          ...(employmentVisa && { employmentVisa }),
           ...(introVideo && { introVideo }),
           ...(professionalSummary && { professionalSummary }),
           
@@ -437,11 +438,11 @@ exports.updateProfile = async (req, res) => {
     }
 
     // Calculate profile completion based on the updated user data
-    // Match frontend calculation logic (25 total fields)
+    // Match frontend calculation logic (24 total fields - employmentVisa removed)
     let completed = 0;
-    const totalFields = 25;
+    const totalFields = 24;
 
-    // Personal Info (10 fields) - matching frontend logic exactly
+    // Personal Info (9 fields) - matching frontend logic exactly
     if (updatedUser.fullName) completed++;
     if (updatedUser.email) completed++;
     if (updatedUser.phoneNumber) completed++;
@@ -451,7 +452,6 @@ exports.updateProfile = async (req, res) => {
     if (updatedUser.professionalSummary) completed++;
     if (updatedUser.emirateId) completed++;
     if (updatedUser.passportNumber) completed++;
-    if (updatedUser.employmentVisa) completed++;
     
     // Experience (4 fields)
     if (updatedUser.professionalExperience && updatedUser.professionalExperience.length > 0) {
@@ -487,19 +487,28 @@ exports.updateProfile = async (req, res) => {
     const calculatedPoints = 50 + (percentage * 2); // Base 50 + 2 points per percentage (100% = 250 points)
     const applicationPoints = updatedUser?.rewards?.applyForJobs || 0; // Points from job applications
     const rmServicePoints = updatedUser?.rewards?.rmService || 0; // Points from RM service purchase
-    const totalPoints = calculatedPoints + applicationPoints + rmServicePoints;
+    const socialMediaBonus = updatedUser?.rewards?.socialMediaBonus || 0; // Bonus points from following social media
+    const totalPoints = calculatedPoints + applicationPoints + rmServicePoints + socialMediaBonus;
     const calculatedProfileCompleted = percentage.toString();
 
     // Update the user with calculated points and profile completion
+    // Preserve socialMediaBonus if it exists, otherwise initialize it
+    const updateData = {
+      'rewards.completeProfile': calculatedPoints,
+      'rewards.totalPoints': totalPoints,
+      'points': totalPoints,
+      'profileCompleted': calculatedProfileCompleted
+    };
+
+    // Preserve socialMediaBonus if it exists
+    if (updatedUser?.rewards?.socialMediaBonus !== undefined) {
+      updateData['rewards.socialMediaBonus'] = updatedUser.rewards.socialMediaBonus;
+    }
+
     const finalUpdatedUser = await User.findByIdAndUpdate(
       userId,
       {
-        $set: {
-          'rewards.completeProfile': calculatedPoints,
-          'rewards.totalPoints': totalPoints,
-          'points': totalPoints,
-          'profileCompleted': calculatedProfileCompleted
-        }
+        $set: updateData
       },
       { new: true } // Return updated document
     );
@@ -541,10 +550,10 @@ exports.checkProfileEligibility = async (req, res) => {
 
     // Calculate profile completion based on the same logic as updateProfile
     let completed = 0;
-    const totalFields = 25;
+    const totalFields = 24;
     const missingFields = [];
 
-    // Personal Info (10 fields) - matching frontend logic exactly
+    // Personal Info (9 fields) - matching frontend logic exactly
     if (user.fullName) completed++; else missingFields.push("Full Name");
     if (user.email) completed++; else missingFields.push("Email");
     if (user.phoneNumber) completed++; else missingFields.push("Phone Number");
@@ -554,7 +563,6 @@ exports.checkProfileEligibility = async (req, res) => {
     if (user.professionalSummary) completed++; else missingFields.push("Professional Summary");
     if (user.emirateId) completed++; else missingFields.push("Emirates ID");
     if (user.passportNumber) completed++; else missingFields.push("Passport Number");
-    if (user.employmentVisa) completed++; else missingFields.push("Employment Visa");
 
     // Experience (4 fields)
     const exp = user.professionalExperience?.[0];
@@ -754,6 +762,107 @@ exports.validateResetToken = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to validate reset token",
+      error: error.message
+    });
+  }
+};
+
+// Follow Social Media - Award points for following LinkedIn/Instagram
+exports.followSocialMedia = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { platform } = req.body; // 'linkedIn' or 'instagram'
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized. Please login first."
+      });
+    }
+
+    if (!platform || !['linkedIn', 'instagram'].includes(platform)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid platform. Must be 'linkedIn' or 'instagram'"
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Check if user already followed this platform
+    const fieldName = platform === 'linkedIn' ? 'linkedIn' : 'instagram';
+    const alreadyFollowed = user[fieldName] === true;
+
+    let pointsAwarded = 0;
+    let message = "";
+
+    if (!alreadyFollowed) {
+      // Set the field to true
+      user[fieldName] = true;
+      
+      // Award 10 points
+      pointsAwarded = 10;
+      
+      // Initialize rewards if it doesn't exist
+      if (!user.rewards) {
+        user.rewards = {
+          completeProfile: 0,
+          applyForJobs: 0,
+          referFriend: 0,
+          totalPoints: 0,
+          socialMediaBonus: 0
+        };
+      }
+
+      // Add bonus points to existing socialMediaBonus
+      const currentSocialBonus = user.rewards.socialMediaBonus || 0;
+      user.rewards.socialMediaBonus = currentSocialBonus + pointsAwarded;
+      
+      // Get current total points from user.points (this includes all previous bonuses)
+      const currentTotalPoints = user.points || 0;
+      
+      // Add the new bonus points to existing total
+      const newTotalPoints = currentTotalPoints + pointsAwarded;
+      
+      // Update user points and rewards
+      user.points = newTotalPoints;
+      user.rewards.totalPoints = newTotalPoints;
+      
+      // Save to database
+      await user.save();
+
+      message = `Successfully followed us on ${platform === 'linkedIn' ? 'LinkedIn' : 'Instagram'}! You earned ${pointsAwarded} bonus points.`;
+    } else {
+      message = `You have already followed us on ${platform === 'linkedIn' ? 'LinkedIn' : 'Instagram'}.`;
+    }
+
+    // Get updated points
+    const updatedUser = await User.findById(userId);
+    const totalPoints = updatedUser.points || 0;
+
+    res.status(200).json({
+      success: true,
+      message,
+      data: {
+        platform,
+        pointsAwarded,
+        totalPoints,
+        alreadyFollowed
+      }
+    });
+
+  } catch (error) {
+    console.error("Follow social media error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to process follow action",
       error: error.message
     });
   }

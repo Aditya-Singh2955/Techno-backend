@@ -34,7 +34,7 @@ const findrUserSchema = new mongoose.Schema(
 
     // Basic Profile
     profilePicture: {
-      type: String, 
+      type: String,
       default: "",
     },
     fullName: {
@@ -170,6 +170,7 @@ const findrUserSchema = new mongoose.Schema(
       applyForJobs: { type: Number, default: 0 },
       referFriend: { type: Number, default: 0 },
       totalPoints: { type: Number, default: 0 },
+      socialMediaBonus: { type: Number, default: 0 }, // Bonus points from following LinkedIn/Instagram
     },
     referralRewardPoints: {
       type: Number,
@@ -200,7 +201,7 @@ const findrUserSchema = new mongoose.Schema(
         dateSaved: { type: Date, default: Date.now },
       },
     ],
-    
+
     // Orders
     orders: [
       {
@@ -213,15 +214,17 @@ const findrUserSchema = new mongoose.Schema(
         status: { type: String, default: "completed" }
       }
     ],
-    
+
     profileCompleted: { type: String, default: "0" },
+    linkedIn: { type: Boolean, default: false },
+    instagram: { type: Boolean, default: false },
     points: { type: Number, default: 0 },
     deductedPoints: { type: Number, default: 0 }, // Track points deducted from orders
     membershipTier: { type: String, default: "Blue", enum: ["Blue", "Silver", "Gold", "Platinum"] },
-    loginStatus: { 
-      type: String, 
-      default: "active", 
-      enum: ["active", "blocked"] 
+    loginStatus: {
+      type: String,
+      default: "active",
+      enum: ["active", "blocked"]
     },
   },
   { timestamps: true }

@@ -15,9 +15,9 @@ exports.createOrder = async (req, res) => {
     // Calculate user's actual points based on profile completion (same as frontend)
     const calculateProfilePoints = (profile) => {
       let completed = 0;
-      const totalFields = 25;
+      const totalFields = 24;
 
-      // Personal Info (10 fields)
+      // Personal Info (9 fields - employmentVisa removed)
       if (profile?.fullName) completed++;
       if (profile?.email) completed++;
       if (profile?.phoneNumber) completed++;
@@ -27,7 +27,6 @@ exports.createOrder = async (req, res) => {
       if (profile?.professionalSummary) completed++;
       if (profile?.emirateId) completed++;
       if (profile?.passportNumber) completed++;
-      if (profile?.employmentVisa) completed++;
 
       // Experience (4 fields)
       const exp = profile?.professionalExperience?.[0];

@@ -100,6 +100,7 @@ exports.getEmployerProfileDetails = async (req, res) => {
         // Profile Stats
         points: publicProfile.points || 0,
         profileCompleted: publicProfile.profileCompleted || 0,
+        membershipTier: publicProfile.membershipTier || "Blue",
         
         // Timestamps
         createdAt: publicProfile.createdAt,

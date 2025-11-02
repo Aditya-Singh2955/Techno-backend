@@ -155,8 +155,8 @@ router.get("/admin/dashboard/stats", async (req, res) => {
       employerCount,
       activeJobsCount,
       applicationsCount,
-      servicesOrdersCount,
-      premiumOrdersCount
+      servicesOrdersData,
+      premiumOrdersData
     ] = await Promise.all([
       // Count jobseekers
       FindrUser.countDocuments({ role: "jobseeker" }),
@@ -170,25 +170,52 @@ router.get("/admin/dashboard/stats", async (req, res) => {
       // Count total applications
       Application.countDocuments(),
       
-      // Count services & orders (HR services from employers)
-      Employer.countDocuments({ 
-        "hrServices": { 
-          $elemMatch: { 
-            status: { $in: ["active", "pending"] } 
-          } 
-        } 
+      // Count services & orders - All individual service/order items
+      Promise.all([
+        // Count all HR service entries from employers (all statuses)
+        Employer.aggregate([
+          { $unwind: "$hrServices" },
+          { $count: "total" }
+        ]).then(result => result[0]?.total || 0),
+        
+        // Count all orders from jobseekers
+        FindrUser.aggregate([
+          { $match: { role: "jobseeker", orders: { $exists: true, $ne: [] } } },
+          { $unwind: "$orders" },
+          { $count: "total" }
+        ]).then(result => result[0]?.total || 0),
+        
+        // Count RM services (jobseekers with Active RM service)
+        FindrUser.countDocuments({ 
+          role: "jobseeker",
+          rmService: "Active" 
+        }),
+        
+        // Count active subscription plans (1 per employer)
+        Employer.countDocuments({ 
+          subscriptionPlan: { $in: ["basic", "premium", "enterprise"] },
+          subscriptionStatus: "active"
+        })
+      ]).then(([hrServicesCount, ordersCount, rmServicesCount, subscriptionCount]) => {
+        // Total all services and orders
+        return hrServicesCount + ordersCount + rmServicesCount + subscriptionCount;
       }),
       
-      // Count premium orders (users with premium subscriptions or paid services)
+      // Count premium orders - subscriptions + RM services
       Promise.all([
+        // Count active subscription plans (1 per employer)
         Employer.countDocuments({ 
           subscriptionPlan: { $in: ["basic", "premium", "enterprise"] },
           subscriptionStatus: "active"
         }),
+        // Count RM services (jobseekers with Active RM service)
         FindrUser.countDocuments({ 
+          role: "jobseeker",
           rmService: "Active" 
         })
-      ]).then(([premiumEmployers, rmUsers]) => premiumEmployers + rmUsers)
+      ]).then(([subscriptionCount, rmServiceCount]) => {
+        return subscriptionCount + rmServiceCount;
+      })
     ]);
 
     const stats = {
@@ -196,8 +223,8 @@ router.get("/admin/dashboard/stats", async (req, res) => {
       employers: employerCount,
       activeJobs: activeJobsCount,
       applications: applicationsCount,
-      servicesOrders: servicesOrdersCount,
-      premiumOrders: premiumOrdersCount
+      servicesOrders: servicesOrdersData,
+      premiumOrders: premiumOrdersData
     };
 
     res.status(200).json({
