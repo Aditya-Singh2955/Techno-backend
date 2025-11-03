@@ -41,12 +41,40 @@ exports.signup = async (req, res) => {
 
     await newUser.save();
 
-    sendWelcomeEmail(
-      email, 
-      newUser.name || newUser.fullName || email.split('@')[0], 
-      newUser.role
-    ).catch(error => {
-      console.error('Failed to send welcome email:', error);
+    // Fire-and-forget welcome email with clear logging for observability
+    setImmediate(async () => {
+      const recipientEmail = email;
+      const recipientName = newUser.name || newUser.fullName || email.split('@')[0];
+      const recipientRole = newUser.role;
+      try {
+        console.log('[WelcomeEmail] Triggering send', {
+          email: recipientEmail,
+          name: recipientName,
+          role: recipientRole
+        });
+        const emailResult = await sendWelcomeEmail(
+          recipientEmail,
+          recipientName,
+          recipientRole
+        );
+        if (emailResult?.success) {
+          console.log('[WelcomeEmail] Sent successfully', {
+            messageId: emailResult.messageId,
+            email: recipientEmail
+          });
+        } else {
+          console.error('[WelcomeEmail] Failed to send', {
+            error: emailResult?.error || 'Unknown error',
+            email: recipientEmail
+          });
+        }
+      } catch (error) {
+        console.error('[WelcomeEmail] Exception during send', {
+          error: error?.message || error,
+          stack: error?.stack,
+          email: recipientEmail
+        });
+      }
     });
 
     const token = jwt.sign(

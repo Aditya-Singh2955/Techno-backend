@@ -9,20 +9,157 @@ const recalculateAwaitingFeedback = async (userId) => {
   try {
     const viewedApplicationsCount = await Application.countDocuments({
       applicantId: userId,
-      viewedByEmployer: true
+      viewedByEmployer: true,
+      status: { $nin: ['withdrawn'] }
     });
-    
+
+    const totalApplicationsCount = await Application.countDocuments({
+      applicantId: userId,
+      status: { $nin: ['withdrawn'] }
+    });
+
+    const awaitingFeedback = Math.max(totalApplicationsCount - viewedApplicationsCount, 0);
+
     await User.findByIdAndUpdate(userId, {
-      'applications.awaitingFeedback': viewedApplicationsCount
+      $set: { 'applications.awaitingFeedback': awaitingFeedback }
     });
-    
-    return viewedApplicationsCount;
+
+    return awaitingFeedback;
   } catch (error) {
     console.error('Error recalculating awaitingFeedback:', error);
     return 0;
   }
 };
 
+// Create new application (when user applies to job)
+// exports.createApplication = async (req, res) => {
+//   try {
+//     const { jobId, expectedSalary, availability, coverLetter } = req.body;
+//     const applicantId = req.user.id;
+
+//     // Check if job exists and is active
+//     const job = await Job.findById(jobId);
+//     if (!job) {
+//       return res.status(404).json({ message: "Job not found" });
+//     }
+//     if (job.status !== "active") {
+//       return res.status(400).json({ message: "Job is not accepting applications" });
+//     }
+
+//     // Check if user already applied
+//     const existingApplication = await Application.findOne({ jobId, applicantId });
+//     if (existingApplication) {
+//       return res.status(400).json({ message: "You have already applied to this job" });
+//     }
+
+//     // Get applicant details for email (do before response)
+//     const applicant = await User.findById(applicantId).select('email fullName name');
+//     if (!applicant) {
+//       return res.status(404).json({ message: "Applicant not found" });
+//     }
+
+//     // Create application
+//     const application = new Application({
+//       jobId,
+//       applicantId,
+//       employerId: job.employer,
+//       expectedSalary,
+//       availability,
+//       coverLetter,
+//       resume: req.body.resume || "", // Should be file URL from upload
+//     });
+
+//     await application.save();
+
+//     // Update job applications array
+//     await Job.findByIdAndUpdate(jobId, {
+//       $push: { applications: application._id }
+//     });
+
+//     // Update employer applications array
+//     await Employer.findByIdAndUpdate(job.employer, {
+//       $push: { applications: application._id }
+//     });
+
+//     // Update user's applied jobs and award points for applying
+//     await User.findByIdAndUpdate(applicantId, {
+//       $push: { 
+//         "applications.appliedJobs": {
+//           jobId,
+//           role: job.title,
+//           company: job.companyName,
+//           date: new Date()
+//         }
+//       },
+//       $inc: { 
+//         "applications.totalApplications": 1,
+//         "applications.activeApplications": 1,
+//         "rewards.applyForJobs": 20, // Award 20 points for applying to a job
+//         "rewards.totalPoints": 20   // Add to total points
+//       }
+//     });
+
+//     // Send HTTP response FIRST
+//     res.status(201).json({
+//       message: "Application submitted successfully",
+//       data: application,
+//       pointsAwarded: 20
+//     });
+
+//     // Fire-and-forget emails AFTER response
+//     setImmediate(async () => {
+//       try {
+//         const { sendNewApplicationNotificationEmail, sendApplicationConfirmationEmail } = require('../services/emailService');
+//         const employer = await Employer.findById(job.employer).select('companyName companyEmail email contactEmail name');
+//         const employerEmail = employer?.companyEmail || employer?.email || employer?.contactEmail;
+//         const employerName = employer?.name || employer?.companyName || 'Employer';
+//         const applicantName = applicant.fullName || applicant.name || 'Candidate';
+//         console.log('[ApplicationEmail] Triggering emails', {
+//           employerEmail,
+//           applicantEmail: applicant?.email,
+//           applicantName,
+//           jobTitle: job.title
+//         });
+//         if (employerEmail) {
+//           const employerEmailResult = await sendNewApplicationNotificationEmail(
+//             employerEmail,
+//             employerName,
+//             job.title,
+//             applicantName,
+//             application.appliedDate || new Date()
+//           );
+//           if (employerEmailResult?.success) {
+//             console.log('[ApplicationEmail] Employer notification sent', { messageId: employerEmailResult.messageId, employerEmail });
+//           } else {
+//             console.error('[ApplicationEmail] Employer notification failed', { error: employerEmailResult?.error, employerEmail });
+//           }
+//         }
+//         if (applicant?.email) {
+//           const applicantEmailResult = await sendApplicationConfirmationEmail(
+//             applicant.email,
+//             applicantName,
+//             job.title,
+//             job.companyName || 'Company',
+//             application.appliedDate || new Date()
+//           );
+//           if (applicantEmailResult?.success) {
+//             console.log('[ApplicationEmail] Applicant confirmation sent', { messageId: applicantEmailResult.messageId, applicantEmail: applicant.email });
+//           } else {
+//             console.error('[ApplicationEmail] Applicant confirmation failed', { error: applicantEmailResult?.error, applicantEmail: applicant.email });
+//           }
+//         }
+//       } catch (err) {
+//         console.error('Post-response email error (createApplication):', err);
+//       }
+//     });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ 
+//       message: "Failed to submit application", 
+//       error: error.message 
+//     });
+//   }
+// };
 // Create new application (when user applies to job)
 exports.createApplication = async (req, res) => {
   try {
@@ -43,6 +180,20 @@ exports.createApplication = async (req, res) => {
     if (existingApplication) {
       return res.status(400).json({ message: "You have already applied to this job" });
     }
+
+    // Get applicant details for email (do before response)
+    const applicant = await User.findById(applicantId).select('email fullName name');
+    if (!applicant) {
+      return res.status(404).json({ message: "Applicant not found" });
+    }
+
+    // IMPORTANT: Log applicant data to debug
+    console.log('[CreateApplication] Applicant data:', {
+      id: applicant._id,
+      email: applicant.email,
+      fullName: applicant.fullName,
+      name: applicant.name
+    });
 
     // Create application
     const application = new Application({
@@ -85,20 +236,115 @@ exports.createApplication = async (req, res) => {
       }
     });
 
+    // Send HTTP response FIRST
     res.status(201).json({
       message: "Application submitted successfully",
       data: application,
       pointsAwarded: 20
     });
+
+    // Fire-and-forget emails AFTER response
+    setImmediate(async () => {
+      try {
+        const { sendNewApplicationNotificationEmail, sendApplicationConfirmationEmail } = require('../services/emailService');
+        
+        // Get employer data
+        const employer = await Employer.findById(job.employer).select('companyName companyEmail email contactEmail name');
+        const employerEmail = employer?.companyEmail || employer?.email || employer?.contactEmail;
+        const employerName = employer?.name || employer?.companyName || 'Employer';
+        const applicantName = applicant.fullName || applicant.name || 'Candidate';
+        
+        console.log('[ApplicationEmail] Starting email process', {
+          employerEmail,
+          applicantEmail: applicant.email,
+          applicantName,
+          jobTitle: job.title
+        });
+
+        // Send BOTH emails - don't wait for employer email to complete
+        const emailPromises = [];
+
+        // 1. Send employer notification email
+        if (employerEmail) {
+          console.log('[ApplicationEmail] Sending to employer:', employerEmail);
+          const employerPromise = sendNewApplicationNotificationEmail(
+            employerEmail,
+            employerName,
+            job.title,
+            applicantName,
+            application.appliedDate || new Date()
+          ).then(result => {
+            if (result?.success) {
+              console.log('[ApplicationEmail] ✓ Employer notification sent', { 
+                messageId: result.messageId, 
+                employerEmail 
+              });
+            } else {
+              console.error('[ApplicationEmail] ✗ Employer notification failed', { 
+                error: result?.error, 
+                employerEmail 
+              });
+            }
+            return result;
+          }).catch(err => {
+            console.error('[ApplicationEmail] ✗ Employer notification error:', err);
+            return { success: false, error: err.message };
+          });
+          emailPromises.push(employerPromise);
+        } else {
+          console.warn('[ApplicationEmail] No employer email found');
+        }
+
+        // 2. Send applicant confirmation email
+        if (applicant.email) {
+          console.log('[ApplicationEmail] Sending to applicant:', applicant.email);
+          const applicantPromise = sendApplicationConfirmationEmail(
+            applicant.email,
+            applicantName,
+            job.title,
+            job.companyName || 'Company',
+            application.appliedDate || new Date()
+          ).then(result => {
+            if (result?.success) {
+              console.log('[ApplicationEmail] ✓ Applicant confirmation sent', { 
+                messageId: result.messageId, 
+                applicantEmail: applicant.email 
+              });
+            } else {
+              console.error('[ApplicationEmail] ✗ Applicant confirmation failed', { 
+                error: result?.error, 
+                applicantEmail: applicant.email 
+              });
+            }
+            return result;
+          }).catch(err => {
+            console.error('[ApplicationEmail] ✗ Applicant confirmation error:', err);
+            return { success: false, error: err.message };
+          });
+          emailPromises.push(applicantPromise);
+        } else {
+          console.error('[ApplicationEmail] ✗ No applicant email found!', {
+            applicantId: applicant._id,
+            applicantData: applicant
+          });
+        }
+
+        // Wait for all emails to complete (but don't block the response)
+        await Promise.allSettled(emailPromises);
+        console.log('[ApplicationEmail] All emails processed');
+        
+      } catch (err) {
+        console.error('[ApplicationEmail] Fatal error in email process:', err);
+      }
+    });
   } catch (error) {
-    console.error(error);
+    console.error('[CreateApplication] Controller error:', error);
     res.status(500).json({ 
       message: "Failed to submit application", 
       error: error.message 
     });
   }
 };
-
 // Get all applications for an employer
 exports.getEmployerApplications = async (req, res) => {
   try {
@@ -218,24 +464,59 @@ exports.updateApplicationStatus = async (req, res) => {
       });
     }
 
-
-    // If application status is 'hired', award bonus points to referrer if this was a referral
-    if (status === 'hired' && application.referredBy) {
-      await User.findByIdAndUpdate(application.referredBy, {
-        $inc: { 
-          "referralRewardPoints": 100, // Award 100 bonus points for successful hire
-          "rewards.totalPoints": 100,   // Add to total points
-          "rewards.referFriend": 100     // Track referral bonus in rewards
-        }
-      });
-    }
-
+    // Send HTTP response FIRST
     res.json({
       message: "Application status updated successfully",
       data: updatedApplication
     });
+
+    // Fire-and-forget status email AFTER response
+    setImmediate(async () => {
+      try {
+        const { sendApplicationStatusUpdateEmail } = require('../services/emailService');
+        const applicant = updatedApplication.applicantDetails || await User.findById(application.applicantId).select('email name fullName');
+        const job = await Job.findById(application.jobId).select('title companyName');
+        const applicantName = applicant?.fullName || applicant?.name || 'Job Seeker';
+        const interviewInfo = status === 'interview_scheduled' ? { date: updateData.interviewDate, mode: interviewMode } : null;
+        console.log('[StatusEmail] Triggering status email', {
+          applicantEmail: applicant?.email,
+          applicantName,
+          jobTitle: job?.title,
+          companyName: job?.companyName,
+          status
+        });
+        if (applicant?.email) {
+          const statusEmailResult = await sendApplicationStatusUpdateEmail(
+            applicant.email,
+            applicantName,
+            job?.title || 'Job',
+            job?.companyName || 'Company',
+            status,
+            interviewInfo
+          );
+          if (statusEmailResult?.success) {
+            console.log('[StatusEmail] Sent successfully', { messageId: statusEmailResult.messageId, applicantEmail: applicant.email });
+          } else {
+            console.error('[StatusEmail] Failed to send', { error: statusEmailResult?.error, applicantEmail: applicant.email });
+          }
+        }
+      } catch (err) {
+        console.error('Post-response email error (updateApplicationStatus):', err);
+      }
+    });
+
+    // If application status is 'hired', award bonus points to referrer if this was a referral (non-blocking)
+    if (status === 'hired' && application.referredBy) {
+      await User.findByIdAndUpdate(application.referredBy, {
+        $inc: { 
+          "referralRewardPoints": 100,
+          "rewards.totalPoints": 100,
+          "rewards.referFriend": 100
+        }
+      });
+    }
   } catch (error) {
-    console.error(error);
+    console.error('Error updating application status:', error);
     res.status(500).json({ 
       message: "Failed to update application status", 
       error: error.message 
@@ -659,10 +940,10 @@ exports.createReferralApplication = async (req, res) => {
     
     if (!userB) {
       // Create User B account if they don't exist
-      const tempPassword = Math.random().toString(36).slice(-8); // Generate temp password
+      const tempPassword = Math.random().toString(36).slice(-8);
       userB = new User({
         email,
-        password: tempPassword, // In production, you'd want to hash this
+        password: tempPassword,
         role: "jobseeker",
         name: friendName,
         phoneNumber: phone,
@@ -731,25 +1012,34 @@ exports.createReferralApplication = async (req, res) => {
       $inc: { 
         "applications.totalApplications": 1,
         "applications.activeApplications": 1,
-        "rewards.applyForJobs": 20, // Award 20 points for applying to a job
-        "rewards.totalPoints": 20   // Add to total points
+        "rewards.applyForJobs": 20,
+        "rewards.totalPoints": 20
       }
     });
 
-    // Award referral points to the referrer (User A)
-    await User.findByIdAndUpdate(referrerId, {
-      $inc: { 
-        "referralRewardPoints": 50, // Award 50 points for successful referral
-        "rewards.totalPoints": 50,   // Add to total points
-        "rewards.referFriend": 50    // Track referral points in rewards
-      }
-    });
-
+    // Send HTTP response FIRST
     res.status(201).json({
       message: "Referral application submitted successfully",
       data: {
         application,
         userCreated: !await User.findOne({ email, _id: { $ne: userB._id } })
+      }
+    });
+
+    // Fire-and-forget confirmation email AFTER response
+    setImmediate(async () => {
+      try {
+        const { sendApplicationConfirmationEmail } = require('../services/emailService');
+        const applicantName = userB.fullName || userB.name || friendName || 'Job Seeker';
+        await sendApplicationConfirmationEmail(
+          userB.email,
+          applicantName,
+          job.title,
+          job.companyName || 'Company',
+          application.appliedDate || new Date()
+        );
+      } catch (err) {
+        console.error('Post-response email error (createReferralApplication):', err);
       }
     });
   } catch (error) {

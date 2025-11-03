@@ -1,6 +1,7 @@
 const Job = require("../model/JobSchema");
 const User = require("../model/UserSchemas");
 const Application = require("../model/ApplicationSchema");
+const Employer = require("../model/EmployerSchema");
 
 // Create a new job
 exports.createJob = async (req, res) => {
@@ -19,9 +20,31 @@ exports.createJob = async (req, res) => {
     const newJob = new Job(jobData);
     await newJob.save();
 
+    // Respond FIRST
     res.status(201).json({
       message: "Job created successfully",
       data: newJob
+    });
+
+    // Fire-and-forget email AFTER response
+    setImmediate(async () => {
+      try {
+        const employer = await Employer.findById(employerId).select('companyName companyEmail email contactEmail name');
+        const { sendJobPostedEmail } = require('../services/emailService');
+        const employerEmail = employer?.companyEmail || employer?.email || employer?.contactEmail;
+        const employerName = employer?.name || employer?.companyName || 'Employer';
+        if (employerEmail) {
+          await sendJobPostedEmail(
+            employerEmail,
+            employerName,
+            newJob.title,
+            newJob.companyName,
+            newJob._id.toString()
+          );
+        }
+      } catch (emailErr) {
+        console.error('Post-response email error (createJob):', emailErr);
+      }
     });
   } catch (error) {
     console.error(error);
