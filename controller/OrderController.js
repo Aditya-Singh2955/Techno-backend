@@ -62,12 +62,50 @@ exports.createOrder = async (req, res) => {
       return totalPoints;
     };
 
-    const userPoints = calculateProfilePoints(user);
+    // Calculate current points components
+    let completed = 0;
+    const totalFields = 24;
+    if (user?.fullName) completed++;
+    if (user?.email) completed++;
+    if (user?.phoneNumber) completed++;
+    if (user?.location) completed++;
+    if (user?.dateOfBirth) completed++;
+    if (user?.nationality) completed++;
+    if (user?.professionalSummary) completed++;
+    if (user?.emirateId) completed++;
+    if (user?.passportNumber) completed++;
+    const exp = user?.professionalExperience?.[0];
+    if (exp?.currentRole) completed++;
+    if (exp?.company) completed++;
+    if (exp?.yearsOfExperience) completed++;
+    if (exp?.industry) completed++;
+    const edu = user?.education?.[0];
+    if (edu?.highestDegree) completed++;
+    if (edu?.institution) completed++;
+    if (edu?.yearOfGraduation) completed++;
+    if (edu?.gradeCgpa) completed++;
+    if (user?.skills && user.skills.length > 0) completed++;
+    if (user?.jobPreferences?.preferredJobType && user.jobPreferences.preferredJobType.length > 0) completed++;
+    if (user?.certifications && user.certifications.length > 0) completed++;
+    if (user?.jobPreferences?.resumeAndDocs && user.jobPreferences.resumeAndDocs.length > 0) completed++;
+    if (user?.socialLinks?.linkedIn) completed++;
+    if (user?.socialLinks?.instagram) completed++;
+    if (user?.socialLinks?.twitterX) completed++;
+
+    const percentage = Math.round((completed / totalFields) * 100);
+    const calculatedPoints = 50 + percentage * 2;
+    const applicationPoints = user.rewards?.applyForJobs || 0;
+    const currentRmServicePoints = user.rewards?.rmService || 0;
     
-    if (pointsUsed > 0 && pointsUsed > userPoints) {
+    // Calculate current total points (before purchase)
+    const currentTotalPoints = calculatedPoints + applicationPoints + currentRmServicePoints;
+    const currentDeductedPoints = user.deductedPoints || 0;
+    const currentAvailablePoints = Math.max(0, currentTotalPoints - currentDeductedPoints);
+    
+    if (pointsUsed > 0 && pointsUsed > currentAvailablePoints) {
       return res.status(400).json({ 
         message: "Insufficient points", 
-        availablePoints: userPoints 
+        availablePoints: currentAvailablePoints 
       });
     }
 
@@ -82,12 +120,11 @@ exports.createOrder = async (req, res) => {
       status: "completed"
     };
 
-    // For calculated points, we need to track deducted points separately
-    // Since points are calculated from profile completion, we'll store the deducted amount
-    const currentDeductedPoints = user.deductedPoints || 0;
+    // Calculate new values after purchase
     const newDeductedPoints = currentDeductedPoints + pointsUsed;
-    const availablePoints = userPoints - newDeductedPoints;
-    
+    const newRmServicePoints = currentRmServicePoints + 100; // Award 100 points for RM service purchase
+    const newTotalPoints = calculatedPoints + applicationPoints + newRmServicePoints;
+    const availablePoints = Math.max(0, newTotalPoints - newDeductedPoints);
     
     const updateResult = await User.findByIdAndUpdate(userId, {
       $set: {
@@ -104,13 +141,62 @@ exports.createOrder = async (req, res) => {
     }, { new: true });
     
 
+    // Send HTTP response FIRST
     res.status(201).json({
       success: true,
       message: "Order placed successfully",
       data: {
         order,
-        remainingPoints: availablePoints + 100, // Add the 100 points awarded
+        remainingPoints: availablePoints, // Correct available points after purchase
         pointsAwarded: 100
+      }
+    });
+
+    // Fire-and-forget email AFTER response
+    setImmediate(async () => {
+      try {
+        const { sendRMServicePurchaseEmail } = require('../services/emailService');
+        const userName = user.fullName || user.name || 'Job Seeker';
+        const userEmail = user.email;
+        
+        if (userEmail) {
+          console.log('[OrderEmail] Sending RM service purchase confirmation', {
+            userEmail,
+            userName,
+            service: service
+          });
+          
+          const emailResult = await sendRMServicePurchaseEmail(
+            userEmail,
+            userName,
+            {
+              service,
+              price,
+              pointsUsed,
+              couponCode,
+              totalAmount,
+              orderDate: order.orderDate
+            }
+          );
+          
+          if (emailResult?.success) {
+            console.log('[OrderEmail] ✓ RM service purchase email sent', { 
+              messageId: emailResult.messageId, 
+              userEmail 
+            });
+          } else {
+            console.error('[OrderEmail] ✗ RM service purchase email failed', { 
+              error: emailResult?.error, 
+              userEmail 
+            });
+          }
+        } else {
+          console.error('[OrderEmail] ✗ No user email found!', {
+            userId: user._id
+          });
+        }
+      } catch (err) {
+        console.error('[OrderEmail] Fatal error in email process:', err);
       }
     });
   } catch (error) {

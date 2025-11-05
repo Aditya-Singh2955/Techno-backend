@@ -5,6 +5,123 @@ const Employer = require("../model/EmployerSchema");
 const Job = require("../model/JobSchema");
 const Application = require("../model/ApplicationSchema");
 const QuoteRequest = require("../model/QuoteRequestSchema");
+const Admin = require("../model/AdminSchema");
+const jwt = require("jsonwebtoken");
+
+// Create Admin Account
+router.post("/admin/create-admin", async (req, res) => {
+  try {
+    const { name, email, password, role = "admin" } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: "Name, email and password are required" });
+    }
+
+    if (!["admin", "superadmin"].includes(role)) {
+      return res.status(400).json({ success: false, message: "Invalid role. Must be 'admin' or 'superadmin'" });
+    }
+
+    const existing = await Admin.findOne({ email: email.toLowerCase() });
+    if (existing) {
+      return res.status(409).json({ success: false, message: "Admin with this email already exists" });
+    }
+
+    const admin = await Admin.create({
+      name,
+      email: email.toLowerCase(),
+      password,
+      role
+    });
+
+    const { password: _, ...adminSafe } = admin.toObject();
+
+    return res.status(201).json({ success: true, message: "Admin created successfully", data: adminSafe });
+  } catch (error) {
+    console.error("Error creating admin:", error);
+    return res.status(500).json({ success: false, message: "Internal server error while creating admin", error: error.message });
+  }
+});
+
+// Admin Login
+router.post("/admin/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: "Email and password are required" });
+    }
+
+    const admin = await Admin.findOne({ email: email.toLowerCase() });
+    if (!admin) {
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
+
+    // Plain-text comparison as requested
+    if (admin.password !== password) {
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
+
+    const token = jwt.sign(
+      {
+        id: admin._id,
+        role: admin.role || "admin",
+        type: "admin",
+        email: admin.email,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    const { password: _, ...adminSafe } = admin.toObject();
+
+    return res.status(200).json({
+      success: true,
+      message: "Admin login successful",
+      user: {
+        id: adminSafe._id,
+        email: adminSafe.email,
+        type: "admin",
+        name: adminSafe.name,
+        role: adminSafe.role || "admin",
+      },
+      token,
+    });
+  } catch (error) {
+    console.error("Error during admin login:", error);
+    return res.status(500).json({ success: false, message: "Internal server error during admin login", error: error.message });
+  }
+});
+
+// List all admins
+router.get("/admin/admins", async (req, res) => {
+  try {
+    const admins = await Admin.find({}).select("_id name email password role createdAt").lean();
+    return res.status(200).json({ success: true, data: admins });
+  } catch (error) {
+    console.error("Error fetching admins:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch admins", error: error.message });
+  }
+});
+
+// Delete an admin by id
+router.delete("/admin/admins/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Prevent deleting the last remaining admin
+    const totalAdmins = await Admin.countDocuments();
+    if (totalAdmins <= 1) {
+      return res.status(400).json({ success: false, message: "Cannot delete the last remaining admin" });
+    }
+    const deleted = await Admin.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: "Admin not found" });
+    }
+    return res.status(200).json({ success: true, message: "Admin deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting admin:", error);
+    return res.status(500).json({ success: false, message: "Failed to delete admin", error: error.message });
+  }
+});
 
 // Admin Users Endpoint - Get users by type
 router.get("/admin/users/:userType", async (req, res) => {
@@ -403,6 +520,80 @@ router.get("/admin/jobs", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error while fetching jobs data",
+      error: error.message
+    });
+  }
+});
+
+// Admin Applications Endpoint - Get all applications
+router.get("/admin/applications", async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search = '', sortBy = 'appliedDate', sortOrder = 'desc', status = 'all' } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+
+    // Build search query
+    const searchOr = [];
+    if (search) {
+      searchOr.push(
+        { coverLetter: { $regex: search, $options: 'i' } },
+        { notes: { $regex: search, $options: 'i' } }
+      );
+    }
+
+    const statusFilter = status === 'all' ? { $exists: true } : status;
+
+    const baseQuery = {
+      ...(searchOr.length ? { $or: searchOr } : {}),
+      ...(status ? { status: statusFilter } : {}),
+    };
+
+    // Fetch with population
+    const [applications, totalCount] = await Promise.all([
+      Application.find(baseQuery)
+        .populate('jobId', 'title companyName')
+        .populate('applicantId', 'name fullName email')
+        .sort({ [sortBy]: sortDirection })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Application.countDocuments(baseQuery)
+    ]);
+
+    const transformed = applications.map(app => ({
+      id: app._id.toString(),
+      candidate: app.applicantId?.fullName || app.applicantId?.name || app.applicantId?.email || 'N/A',
+      jobTitle: app.jobId?.title || 'N/A',
+      status: app.status,
+      appliedDate: app.appliedDate,
+      applicationUrl: `/admin/jobs/${app.jobId?._id || ''}`
+    }));
+
+    const totalPages = Math.ceil(totalCount / parseInt(limit));
+    const hasNextPage = parseInt(page) < totalPages;
+    const hasPrevPage = parseInt(page) > 1;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        applications: transformed,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalCount,
+          hasNextPage,
+          hasPrevPage,
+          limit: parseInt(limit)
+        }
+      },
+      message: "Applications data fetched successfully"
+    });
+  } catch (error) {
+    console.error("Error fetching applications data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching applications data",
       error: error.message
     });
   }
@@ -1034,9 +1225,10 @@ router.get("/admin/services", async (req, res) => {
       // Add HR services (active and stopped)
       if (employer.hrServices && employer.hrServices.length > 0) {
         employer.hrServices.forEach((service, index) => {
-          let serviceStatus = service.status;
-          if (service.status === 'inactive' || service.status === 'suspended') {
-            serviceStatus = 'stopped';
+          let serviceStatus = service.status; // keep real state: 'active' | 'inactive'
+          // If your UI expects 'suspended' as a distinct state, map pending -> suspended
+          if (service.status === 'pending') {
+            serviceStatus = 'suspended';
           }
           services.push({
             _id: `${employer._id}_hr_${index}`,

@@ -231,8 +231,9 @@ exports.createApplication = async (req, res) => {
       $inc: { 
         "applications.totalApplications": 1,
         "applications.activeApplications": 1,
-        "rewards.applyForJobs": 20, // Award 20 points for applying to a job
-        "rewards.totalPoints": 20   // Add to total points
+        "rewards.applyForJobs": 30, // Award 30 points for applying to a job
+        "rewards.totalPoints": 30,  // Add to total points (rewards)
+        "points": 30                // Add to root points field
       }
     });
 
@@ -240,7 +241,7 @@ exports.createApplication = async (req, res) => {
     res.status(201).json({
       message: "Application submitted successfully",
       data: application,
-      pointsAwarded: 20
+      pointsAwarded: 30
     });
 
     // Fire-and-forget emails AFTER response
@@ -505,15 +506,26 @@ exports.updateApplicationStatus = async (req, res) => {
       }
     });
 
-    // If application status is 'hired', award bonus points to referrer if this was a referral (non-blocking)
-    if (status === 'hired' && application.referredBy) {
-      await User.findByIdAndUpdate(application.referredBy, {
-        $inc: { 
-          "referralRewardPoints": 100,
-          "rewards.totalPoints": 100,
-          "rewards.referFriend": 100
-        }
-      });
+    // If application status is 'hired'
+    if (status === 'hired') {
+      // 1) Award employer +50 points
+      try {
+        await Employer.findByIdAndUpdate(employerId, { $inc: { points: 50 } });
+        console.log('[Points] +50 awarded to employer for hiring:', employerId);
+      } catch (pointsErr) {
+        console.error('[Points] Failed to award hiring points:', pointsErr);
+      }
+
+      // 2) Award bonus points to referrer if this was a referral (non-blocking)
+      if (application.referredBy) {
+        await User.findByIdAndUpdate(application.referredBy, {
+          $inc: { 
+            "referralRewardPoints": 100,
+            "rewards.totalPoints": 100,
+            "rewards.referFriend": 100
+          }
+        });
+      }
     }
   } catch (error) {
     console.error('Error updating application status:', error);
@@ -1012,8 +1024,9 @@ exports.createReferralApplication = async (req, res) => {
       $inc: { 
         "applications.totalApplications": 1,
         "applications.activeApplications": 1,
-        "rewards.applyForJobs": 20,
-        "rewards.totalPoints": 20
+        "rewards.applyForJobs": 30,
+        "rewards.totalPoints": 30,
+        "points": 30
       }
     });
 

@@ -30,6 +30,13 @@ exports.createJob = async (req, res) => {
     setImmediate(async () => {
       try {
         const employer = await Employer.findById(employerId).select('companyName companyEmail email contactEmail name');
+        // Award employer points for posting a job (+30)
+        try {
+          await Employer.findByIdAndUpdate(employerId, { $inc: { points: 30 } });
+          console.log('[Points] +30 awarded to employer for posting a job:', employerId);
+        } catch (pointsErr) {
+          console.error('[Points] Failed to award posting points:', pointsErr);
+        }
         const { sendJobPostedEmail } = require('../services/emailService');
         const employerEmail = employer?.companyEmail || employer?.email || employer?.contactEmail;
         const employerName = employer?.name || employer?.companyName || 'Employer';

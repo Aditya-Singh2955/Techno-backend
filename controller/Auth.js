@@ -354,6 +354,7 @@ exports.getUserProfileDetails = async (req, res) => {
           completeProfile: publicProfile.rewards?.completeProfile || 0,
           applyForJobs: publicProfile.rewards?.applyForJobs || 0,
           referFriend: publicProfile.rewards?.referFriend || 0,
+          rmService: publicProfile.rewards?.rmService || 0, // Points from RM service purchase
           totalPoints: publicProfile.rewards?.totalPoints || 0,
         },
         linkedIn: user.linkedIn || false,
@@ -419,6 +420,14 @@ exports.updateProfile = async (req, res) => {
       // Resume Document
       resumeDocument,
     } = req.body;
+
+    // Validate Emirates ID if provided: exactly 15 digits
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'emirateId')) {
+      const emirateIdStr = (req.body.emirateId ?? '').toString().trim();
+      if (emirateIdStr && !/^\d{15}$/.test(emirateIdStr)) {
+        return res.status(400).json({ message: "Invalid Emirates ID. It must be exactly 15 digits." });
+      }
+    }
 
     // Get user ID from token
     const userId = req.user?.id; // You'll need to implement auth middleware to get this

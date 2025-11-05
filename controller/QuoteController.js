@@ -36,6 +36,50 @@ exports.createQuoteRequest = async (req, res) => {
       data: quoteRequest
     });
 
+    // Fire-and-forget emails AFTER response
+    setImmediate(async () => {
+      try {
+        const { sendQuoteRequestConfirmationEmail, sendQuoteRequestAdminNotificationEmail } = require('../services/emailService');
+        const employerEmail = employer.email;
+        const employerName = employer.companyName || employer.name || 'Employer';
+        const adminEmail = process.env.ADMIN_EMAIL; // optional
+
+        if (employerEmail) {
+          const confirmResult = await sendQuoteRequestConfirmationEmail(
+            employerEmail,
+            employerName,
+            service,
+            requirements,
+            budget,
+            timeline
+          );
+          if (confirmResult?.success) {
+            console.log('[QuoteEmail] ✓ Employer confirmation sent', { messageId: confirmResult.messageId, employerEmail });
+          } else {
+            console.error('[QuoteEmail] ✗ Employer confirmation failed', { error: confirmResult?.error, employerEmail });
+          }
+        } else {
+          console.warn('[QuoteEmail] No employer email on file');
+        }
+
+        if (adminEmail) {
+          const adminResult = await sendQuoteRequestAdminNotificationEmail(
+            adminEmail,
+            employerName,
+            service,
+            requirements
+          );
+          if (adminResult?.success) {
+            console.log('[QuoteEmail] ✓ Admin notification sent', { messageId: adminResult.messageId, adminEmail });
+          } else {
+            console.error('[QuoteEmail] ✗ Admin notification failed', { error: adminResult?.error, adminEmail });
+          }
+        }
+      } catch (err) {
+        console.error('[QuoteEmail] Fatal email error:', err);
+      }
+    });
+
   } catch (error) {
     res.status(500).json({
       success: false,
