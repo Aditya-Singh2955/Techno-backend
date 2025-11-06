@@ -791,9 +791,20 @@ exports.getApplicationById = async (req, res) => {
         });
       }
     } else if (userRole === 'jobseeker') {
-      // For jobseekers, verify they own this application
-      if (application.applicantId._id.toString() !== userId) {
-        console.log('Application access denied for jobseeker');
+      // For jobseekers, verify they own this application OR they referred this person
+      const isOwner = application.applicantId._id.toString() === userId;
+      // Handle both populated and unpopulated referredBy field
+      const referredById = application.referredBy?._id ? application.referredBy._id.toString() : application.referredBy?.toString();
+      const isReferrer = referredById === userId;
+      
+      if (!isOwner && !isReferrer) {
+        console.log('Application access denied for jobseeker - not owner or referrer', {
+          userId,
+          applicantId: application.applicantId._id.toString(),
+          referredBy: referredById,
+          isOwner,
+          isReferrer
+        });
         return res.status(404).json({ message: "Application not found or access denied" });
       }
     } else {
@@ -969,14 +980,69 @@ exports.createReferralApplication = async (req, res) => {
           isCurrent: true
         }],
         education: [{
+          highestDegree: education,
           degree: education,
           institution: "Not specified",
           graduationYear: new Date().getFullYear()
         }],
-        skills: skills.split(',').map(skill => skill.trim()),
+        skills: skills ? skills.split(',').map(skill => skill.trim()).filter(Boolean) : [],
+        certifications: certifications ? certifications.split(',').map(cert => cert.trim()).filter(Boolean) : [],
         resumeDocument: resumeUrl
       });
       await userB.save();
+    } else {
+      // Update existing user with referral data (education and certifications)
+      const updateData = {};
+      
+      // Update education if provided
+      if (education) {
+        if (!userB.education || userB.education.length === 0) {
+          updateData.education = [{
+            highestDegree: education,
+            degree: education,
+            institution: "Not specified",
+            graduationYear: new Date().getFullYear()
+          }];
+        } else {
+          // Update first education entry
+          const updatedEducation = [...userB.education];
+          updatedEducation[0] = {
+            ...updatedEducation[0],
+            highestDegree: education,
+            degree: education
+          };
+          updateData.education = updatedEducation;
+        }
+      }
+      
+      // Update certifications if provided
+      if (certifications) {
+        const certArray = certifications.split(',').map(cert => cert.trim()).filter(Boolean);
+        if (certArray.length > 0) {
+          updateData.certifications = certArray;
+        }
+      }
+      
+      // Update skills if provided
+      if (skills) {
+        const skillsArray = skills.split(',').map(skill => skill.trim()).filter(Boolean);
+        if (skillsArray.length > 0) {
+          updateData.skills = skillsArray;
+        }
+      }
+      
+      // Update other fields if missing
+      if (!userB.phoneNumber && phone) updateData.phoneNumber = phone;
+      if (!userB.location && location) updateData.location = location;
+      if (!userB.nationality && nationality) updateData.nationality = nationality;
+      if (!userB.dateOfBirth && dateOfBirth) updateData.dateOfBirth = dateOfBirth;
+      if (!userB.resumeDocument && resumeUrl) updateData.resumeDocument = resumeUrl;
+      
+      if (Object.keys(updateData).length > 0) {
+        await User.findByIdAndUpdate(userB._id, { $set: updateData });
+        // Reload user to get updated data
+        userB = await User.findById(userB._id);
+      }
     }
 
     // Check if User B already applied for this job
