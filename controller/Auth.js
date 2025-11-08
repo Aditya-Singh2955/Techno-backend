@@ -37,9 +37,59 @@ exports.signup = async (req, res) => {
       name: otherData.name || otherData.fullName || email.split('@')[0], // Fallback to email username if no name provided
       ...(role === "employer" ? otherData : { ...otherData, fullName: otherData.name })
     };
-    const newUser = new Model(userData);
+    let newUser = new Model(userData);
 
     await newUser.save();
+
+    // Calculate initial points for jobseekers based on profile completion
+    if (role === "jobseeker") {
+      let completed = 0;
+      const totalFields = 24; // Total profile fields
+
+      // Check which fields are filled
+      if (newUser.fullName || newUser.name) completed++;
+      if (newUser.email) completed++;
+      if (newUser.phoneNumber) completed++;
+      if (newUser.location) completed++;
+      if (newUser.dateOfBirth) completed++;
+      if (newUser.nationality) completed++;
+      if (newUser.professionalSummary) completed++;
+      if (newUser.emirateId) completed++;
+      if (newUser.passportNumber) completed++;
+      
+      const exp = newUser.professionalExperience?.[0];
+      if (exp?.currentRole) completed++;
+      if (exp?.company) completed++;
+      if (exp?.yearsOfExperience) completed++;
+      if (exp?.industry) completed++;
+      
+      const edu = newUser.education?.[0];
+      if (edu?.highestDegree) completed++;
+      if (edu?.institution) completed++;
+      if (edu?.yearOfGraduation) completed++;
+      if (edu?.gradeCgpa) completed++;
+      
+      if (newUser.skills && newUser.skills.length > 0) completed++;
+      if (newUser.jobPreferences?.preferredJobType && newUser.jobPreferences.preferredJobType.length > 0) completed++;
+      if (newUser.certifications && newUser.certifications.length > 0) completed++;
+      if (newUser.jobPreferences?.resumeAndDocs && newUser.jobPreferences.resumeAndDocs.length > 0) completed++;
+      
+      if (newUser.socialLinks?.linkedIn) completed++;
+      if (newUser.socialLinks?.instagram) completed++;
+      if (newUser.socialLinks?.twitterX) completed++;
+
+      const percentage = Math.round((completed / totalFields) * 100);
+      const calculatedPoints = 50 + percentage * 2; // Base 50 + 2 points per percentage (100% = 250 points)
+      
+      // Update rewards.totalPoints and points field
+      newUser.rewards.totalPoints = calculatedPoints;
+      newUser.points = calculatedPoints;
+      newUser.rewards.completeProfile = percentage;
+      await newUser.save();
+      
+      // Reload user to get updated values
+      newUser = await Model.findById(newUser._id);
+    }
 
     // Fire-and-forget welcome email with clear logging for observability
     setImmediate(async () => {

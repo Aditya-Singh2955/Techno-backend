@@ -339,8 +339,8 @@ exports.getJobRecommendations = async (req, res) => {
     const userId = req.user.id;
     const { limit = 5 } = req.query;
 
-    // Get user profile
-    const user = await User.findById(userId).select('skills location professionalExperience');
+    // Get user profile with all relevant fields for accurate matching
+    const user = await User.findById(userId).select('skills location professionalExperience jobPreferences');
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -413,67 +413,185 @@ exports.getJobRecommendations = async (req, res) => {
   }
 };
 
-// Simple recommendation scoring function
+// Improved recommendation scoring function with better accuracy
 function calculateSimpleRecommendationScore(job, user) {
   try {
-    let score = 50; // Base score
+    let score = 0; // Start from 0 for more accurate scoring
 
-    // Skills match (40% weight)
-    if (job.skills && Array.isArray(job.skills) && user.skills && Array.isArray(user.skills)) {
-      const jobSkills = job.skills.map(skill => String(skill).toLowerCase());
-      const userSkills = user.skills.map(skill => String(skill).toLowerCase());
+    // 1. Skills match (35% weight) - Most important
+    if (job.skills && Array.isArray(job.skills) && job.skills.length > 0) {
+      if (user.skills && Array.isArray(user.skills) && user.skills.length > 0) {
+        const jobSkills = job.skills.map(skill => String(skill).trim().toLowerCase()).filter(s => s.length > 0);
+        const userSkills = user.skills.map(skill => String(skill).trim().toLowerCase()).filter(s => s.length > 0);
+        
+        // Only count meaningful skills (not single letters or invalid entries)
+        const validJobSkills = jobSkills.filter(skill => skill.length > 1 && !/^[^a-z0-9]+$/.test(skill));
+        const validUserSkills = userSkills.filter(skill => skill.length > 1 && !/^[^a-z0-9]+$/.test(skill));
+        
+        if (validJobSkills.length > 0 && validUserSkills.length > 0) {
+          const matchingSkills = validJobSkills.filter(jobSkill => 
+            validUserSkills.some(userSkill => {
+              // Exact match or one contains the other (for variations like "java" and "java programming")
+              return userSkill === jobSkill || 
+                     (userSkill.length > 3 && jobSkill.length > 3 && 
+                      (userSkill.includes(jobSkill) || jobSkill.includes(userSkill)));
+            })
+          );
+          
+          const skillMatchPercent = (matchingSkills.length / validJobSkills.length) * 35;
+          score += skillMatchPercent;
+        } else {
+          // Penalty if user has invalid skills but job requires real skills
+          score -= 10;
+        }
+      } else {
+        // Penalty if job requires skills but user has none
+        score -= 15;
+      }
+    }
+
+    // 2. Experience level match (25% weight) - Check actual years of experience
+    if (job.experienceLevel) {
+      const jobExp = String(job.experienceLevel).toLowerCase();
+      let userYearsExp = 0;
       
-      const matchingSkills = jobSkills.filter(jobSkill => 
-        userSkills.some(userSkill => 
-          userSkill.includes(jobSkill) || jobSkill.includes(userSkill)
-        )
+      // Get actual years of experience from user profile
+      if (user.professionalExperience && Array.isArray(user.professionalExperience) && user.professionalExperience.length > 0) {
+        const firstExp = user.professionalExperience[0];
+        if (firstExp.yearsOfExperience) {
+          userYearsExp = firstExp.yearsOfExperience;
+        } else if (firstExp.experience) {
+          // Handle string format like "10+ years", "2-3 years", etc.
+          const expStr = String(firstExp.experience).toLowerCase();
+          // Check for 10+ first (before checking for "10" which might match "1" or "0")
+          if (expStr.includes('10+') || /^10/.test(expStr)) userYearsExp = 10;
+          else if (expStr.includes('7-10') || /^7/.test(expStr)) userYearsExp = 7;
+          else if (expStr.includes('4-6') || /^4/.test(expStr)) userYearsExp = 4;
+          else if (expStr.includes('2-3') || /^2/.test(expStr)) userYearsExp = 2;
+          else if (expStr.includes('0-1') || /^1/.test(expStr)) userYearsExp = 1;
+        }
+      }
+      
+      let expScore = 0;
+      if (jobExp.includes('entry') || jobExp.includes('junior') || jobExp.includes('intern')) {
+        // Entry level: 0-2 years ideal, 3-4 acceptable, 5+ overqualified
+        if (userYearsExp <= 2) expScore = 25;
+        else if (userYearsExp <= 4) expScore = 15;
+        else if (userYearsExp <= 6) expScore = 5; // Overqualified
+        else expScore = -10; // Significantly overqualified
+      } else if (jobExp.includes('mid') || jobExp.includes('intermediate')) {
+        // Mid level: 3-7 years ideal, 2 or 8-9 acceptable, 10+ overqualified
+        if (userYearsExp >= 3 && userYearsExp <= 7) expScore = 25;
+        else if (userYearsExp >= 2 && userYearsExp <= 9) expScore = 15;
+        else if (userYearsExp >= 10) expScore = -5; // Overqualified
+        else expScore = 10; // Underqualified but acceptable
+      } else if (jobExp.includes('senior') || jobExp.includes('lead') || jobExp.includes('executive')) {
+        // Senior level: 5+ years ideal, 3-4 acceptable, less than 3 underqualified
+        if (userYearsExp >= 5) expScore = 25;
+        else if (userYearsExp >= 3) expScore = 15;
+        else expScore = 5; // Underqualified
+      } else {
+        expScore = 10; // Unknown level, give moderate score
+      }
+      
+      score += expScore;
+    }
+
+    // 3. Location match (20% weight) - Check both current location and preferred location
+    if (job.location) {
+      const jobLoc = String(job.location).toLowerCase();
+      const userCurrentLoc = user.location ? String(user.location).toLowerCase() : '';
+      const userPreferredLoc = user.jobPreferences?.preferredLocation ? 
+        String(user.jobPreferences.preferredLocation).toLowerCase() : '';
+      
+      let locationMatch = false;
+      
+      // Check if job location matches user's preferred location (more important)
+      if (userPreferredLoc && (jobLoc.includes(userPreferredLoc) || userPreferredLoc.includes(jobLoc))) {
+        score += 20;
+        locationMatch = true;
+      }
+      // Check if job location matches user's current location
+      else if (userCurrentLoc && (jobLoc.includes(userCurrentLoc) || userCurrentLoc.includes(jobLoc))) {
+        score += 15;
+        locationMatch = true;
+      }
+      // Partial match (same city or region)
+      else if (userPreferredLoc || userCurrentLoc) {
+        const checkLoc = userPreferredLoc || userCurrentLoc;
+        const jobWords = jobLoc.split(/[,\s]+/).filter(w => w.length > 2);
+        const userWords = checkLoc.split(/[,\s]+/).filter(w => w.length > 2);
+        const commonWords = jobWords.filter(word => userWords.includes(word));
+        if (commonWords.length > 0) {
+          score += 5; // Partial match
+        } else {
+          score -= 10; // Location mismatch penalty
+        }
+      }
+    }
+
+    // 4. Job type match (10% weight) - Check preferred job type
+    if (job.jobType && Array.isArray(job.jobType) && job.jobType.length > 0) {
+      const jobTypes = job.jobType.map(t => String(t).toLowerCase());
+      const userPreferredTypes = user.jobPreferences?.preferredJobType || [];
+      const userTypes = userPreferredTypes.map(t => String(t).toLowerCase());
+      
+      const hasMatch = jobTypes.some(jobType => 
+        userTypes.some(userType => {
+          // Normalize variations (e.g., "Part Time" vs "Part-time" vs "parttime")
+          const normalizedJobType = jobType.replace(/[\s-]/g, '');
+          const normalizedUserType = userType.replace(/[\s-]/g, '');
+          return normalizedJobType === normalizedUserType || 
+                 jobType.includes(userType) || 
+                 userType.includes(jobType);
+        })
       );
       
-      if (jobSkills.length > 0) {
-        const skillMatchPercent = (matchingSkills.length / jobSkills.length) * 40;
-        score += skillMatchPercent;
-      }
-    }
-
-    // Location match (30% weight)
-    if (job.location && user.location) {
-      const jobLoc = String(job.location).toLowerCase();
-      const userLoc = String(user.location).toLowerCase();
-      
-      if (jobLoc.includes(userLoc) || userLoc.includes(jobLoc)) {
-        score += 30;
-      } else if (jobLoc.split(' ').some(word => userLoc.includes(word))) {
-        score += 15; // Partial location match
-      }
-    }
-
-    // Experience match (20% weight)
-    if (job.experienceLevel && user.professionalExperience && Array.isArray(user.professionalExperience)) {
-      const userExp = user.professionalExperience.length || 0;
-      const jobExp = String(job.experienceLevel).toLowerCase();
-      
-      if ((jobExp.includes('entry') && userExp <= 2) ||
-          (jobExp.includes('mid') && userExp >= 2 && userExp <= 7) ||
-          (jobExp.includes('senior') && userExp >= 5)) {
-        score += 20;
+      if (hasMatch) {
+        score += 10;
       } else {
-        score += 10; // Partial match
+        score -= 5; // Job type mismatch
       }
     }
 
-    // Recent job bonus (10% weight)
+    // 5. Salary expectation match (10% weight) - Check if salary is in acceptable range
+    if (job.salary && user.jobPreferences?.salaryExpectation) {
+      const jobMin = job.salary.min || 0;
+      const jobMax = job.salary.max || 0;
+      const jobAvg = (jobMin + jobMax) / 2;
+      
+      // Parse user's salary expectation (could be a range or single value)
+      const userSalaryStr = String(user.jobPreferences.salaryExpectation).replace(/[^\d]/g, '');
+      const userSalary = parseInt(userSalaryStr) || 0;
+      
+      if (userSalary > 0 && jobAvg > 0) {
+        // If user expects more than 2x the job offers, it's a mismatch
+        if (userSalary > jobMax * 2) {
+          score -= 15; // Significant salary mismatch
+        } else if (userSalary > jobMax * 1.5) {
+          score -= 8; // Moderate salary mismatch
+        } else if (userSalary >= jobMin * 0.8 && userSalary <= jobMax * 1.2) {
+          score += 10; // Good salary match
+        } else if (userSalary >= jobMin * 0.5) {
+          score += 5; // Acceptable salary range
+        }
+      }
+    }
+
+    // 6. Recent job bonus (5% weight) - Less important
     if (job.createdAt) {
       const daysSincePosted = (new Date() - new Date(job.createdAt)) / (1000 * 60 * 60 * 24);
       if (daysSincePosted <= 7) {
-        score += 10;
-      } else if (daysSincePosted <= 30) {
         score += 5;
+      } else if (daysSincePosted <= 30) {
+        score += 2;
       }
     }
 
-    return Math.min(Math.round(score), 100);
+    // Ensure score is between 0 and 100
+    return Math.max(0, Math.min(Math.round(score), 100));
   } catch (error) {
     console.error("Error calculating recommendation score:", error);
-    return 50; // Return base score on error
+    return 0; // Return 0 on error instead of 50
   }
 }
