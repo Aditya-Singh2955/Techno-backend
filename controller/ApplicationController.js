@@ -231,9 +231,9 @@ exports.createApplication = async (req, res) => {
       $inc: { 
         "applications.totalApplications": 1,
         "applications.activeApplications": 1,
-        "rewards.applyForJobs": 30, // Award 30 points for applying to a job
-        "rewards.totalPoints": 30,  // Add to total points (rewards)
-        "points": 30                // Add to root points field
+        "rewards.applyForJobs": 20, // Award 20 points for applying to a job
+        "rewards.totalPoints": 20,  // Add to total points (rewards)
+        "points": 20                // Add to root points field
       }
     });
 
@@ -241,7 +241,7 @@ exports.createApplication = async (req, res) => {
     res.status(201).json({
       message: "Application submitted successfully",
       data: application,
-      pointsAwarded: 30
+      pointsAwarded: 20
     });
 
     // Fire-and-forget emails AFTER response
@@ -1090,9 +1090,9 @@ exports.createReferralApplication = async (req, res) => {
       $inc: { 
         "applications.totalApplications": 1,
         "applications.activeApplications": 1,
-        "rewards.applyForJobs": 30,
-        "rewards.totalPoints": 30,
-        "points": 30
+        "rewards.applyForJobs": 20,
+        "rewards.totalPoints": 20,
+        "points": 20
       }
     });
 

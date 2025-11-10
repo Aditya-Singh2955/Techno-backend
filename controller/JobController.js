@@ -345,8 +345,11 @@ exports.getJobRecommendations = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Get jobs user has already applied to
-    const appliedJobIds = await Application.find({ applicantId: userId }).distinct('jobId');
+    // Get jobs user has already applied to (excluding withdrawn applications)
+    const appliedJobIds = await Application.find({ 
+      applicantId: userId,
+      status: { $ne: 'withdrawn' } // Exclude withdrawn applications
+    }).distinct('jobId');
 
     // Build query for active jobs (excluding applied ones)
     let matchQuery = {
@@ -441,61 +444,77 @@ function calculateSimpleRecommendationScore(job, user) {
           const skillMatchPercent = (matchingSkills.length / validJobSkills.length) * 35;
           score += skillMatchPercent;
         } else {
-          // Penalty if user has invalid skills but job requires real skills
-          score -= 10;
+          // Penalty if user has invalid skills but job requires real skills (reduced penalty)
+          score -= 5;
         }
       } else {
-        // Penalty if job requires skills but user has none
-        score -= 15;
+        // Penalty if job requires skills but user has none (reduced penalty)
+        score -= 8;
       }
     }
 
     // 2. Experience level match (25% weight) - Check actual years of experience
-    if (job.experienceLevel) {
-      const jobExp = String(job.experienceLevel).toLowerCase();
-      let userYearsExp = 0;
-      
-      // Get actual years of experience from user profile
-      if (user.professionalExperience && Array.isArray(user.professionalExperience) && user.professionalExperience.length > 0) {
-        const firstExp = user.professionalExperience[0];
-        if (firstExp.yearsOfExperience) {
-          userYearsExp = firstExp.yearsOfExperience;
-        } else if (firstExp.experience) {
-          // Handle string format like "10+ years", "2-3 years", etc.
-          const expStr = String(firstExp.experience).toLowerCase();
-          // Check for 10+ first (before checking for "10" which might match "1" or "0")
-          if (expStr.includes('10+') || /^10/.test(expStr)) userYearsExp = 10;
-          else if (expStr.includes('7-10') || /^7/.test(expStr)) userYearsExp = 7;
-          else if (expStr.includes('4-6') || /^4/.test(expStr)) userYearsExp = 4;
-          else if (expStr.includes('2-3') || /^2/.test(expStr)) userYearsExp = 2;
-          else if (expStr.includes('0-1') || /^1/.test(expStr)) userYearsExp = 1;
-        }
+    let userYearsExp = 0;
+    
+    // Get actual years of experience from user profile
+    if (user.professionalExperience && Array.isArray(user.professionalExperience) && user.professionalExperience.length > 0) {
+      const firstExp = user.professionalExperience[0];
+      if (firstExp.yearsOfExperience) {
+        userYearsExp = firstExp.yearsOfExperience;
+      } else if (firstExp.experience) {
+        // Handle string format like "10+ years", "2-3 years", etc.
+        const expStr = String(firstExp.experience).toLowerCase();
+        // Check for 10+ first (before checking for "10" which might match "1" or "0")
+        if (expStr.includes('10+') || /^10/.test(expStr)) userYearsExp = 10;
+        else if (expStr.includes('7-10') || /^7/.test(expStr)) userYearsExp = 7;
+        else if (expStr.includes('4-6') || /^4/.test(expStr)) userYearsExp = 4;
+        else if (expStr.includes('2-3') || /^2/.test(expStr)) userYearsExp = 2;
+        else if (expStr.includes('0-1') || /^1/.test(expStr)) userYearsExp = 1;
       }
-      
-      let expScore = 0;
-      if (jobExp.includes('entry') || jobExp.includes('junior') || jobExp.includes('intern')) {
-        // Entry level: 0-2 years ideal, 3-4 acceptable, 5+ overqualified
-        if (userYearsExp <= 2) expScore = 25;
-        else if (userYearsExp <= 4) expScore = 15;
-        else if (userYearsExp <= 6) expScore = 5; // Overqualified
-        else expScore = -10; // Significantly overqualified
-      } else if (jobExp.includes('mid') || jobExp.includes('intermediate')) {
-        // Mid level: 3-7 years ideal, 2 or 8-9 acceptable, 10+ overqualified
-        if (userYearsExp >= 3 && userYearsExp <= 7) expScore = 25;
-        else if (userYearsExp >= 2 && userYearsExp <= 9) expScore = 15;
-        else if (userYearsExp >= 10) expScore = -5; // Overqualified
-        else expScore = 10; // Underqualified but acceptable
-      } else if (jobExp.includes('senior') || jobExp.includes('lead') || jobExp.includes('executive')) {
-        // Senior level: 5+ years ideal, 3-4 acceptable, less than 3 underqualified
-        if (userYearsExp >= 5) expScore = 25;
-        else if (userYearsExp >= 3) expScore = 15;
-        else expScore = 5; // Underqualified
-      } else {
-        expScore = 10; // Unknown level, give moderate score
-      }
-      
-      score += expScore;
     }
+    
+    let expScore = 0;
+    let jobExpLevel = '';
+    
+    // Check if job has experienceLevel field
+    if (job.experienceLevel) {
+      jobExpLevel = String(job.experienceLevel).toLowerCase();
+    } else {
+      // Try to extract from job description or requirements
+      const jobText = ((job.description || '') + ' ' + (job.requirements || []).join(' ')).toLowerCase();
+      if (jobText.includes('0-2 years') || jobText.includes('0 to 2 years') || jobText.includes('entry level') || jobText.includes('junior') || jobText.includes('intern')) {
+        jobExpLevel = 'entry';
+      } else if (jobText.includes('3-5 years') || jobText.includes('mid level') || jobText.includes('intermediate')) {
+        jobExpLevel = 'mid';
+      } else if (jobText.includes('5+ years') || jobText.includes('senior') || jobText.includes('lead') || jobText.includes('executive')) {
+        jobExpLevel = 'senior';
+      }
+    }
+    
+    if (jobExpLevel.includes('entry') || jobExpLevel.includes('junior') || jobExpLevel.includes('intern')) {
+      // Entry level: 0-2 years ideal, 3-4 acceptable, 5+ overqualified (but less penalty)
+      if (userYearsExp <= 2) expScore = 25;
+      else if (userYearsExp <= 4) expScore = 15;
+      else if (userYearsExp <= 6) expScore = 8; // Overqualified but still acceptable
+      else expScore = 5; // Significantly overqualified but don't penalize too much
+    } else if (jobExpLevel.includes('mid') || jobExpLevel.includes('intermediate')) {
+      // Mid level: 3-7 years ideal, 2 or 8-9 acceptable, 10+ overqualified
+      if (userYearsExp >= 3 && userYearsExp <= 7) expScore = 25;
+      else if (userYearsExp >= 2 && userYearsExp <= 9) expScore = 15;
+      else if (userYearsExp >= 10) expScore = 8; // Overqualified but acceptable
+      else expScore = 10; // Underqualified but acceptable
+    } else if (jobExpLevel.includes('senior') || jobExpLevel.includes('lead') || jobExpLevel.includes('executive')) {
+      // Senior level: 5+ years ideal, 3-4 acceptable, less than 3 underqualified
+      if (userYearsExp >= 5) expScore = 25;
+      else if (userYearsExp >= 3) expScore = 15;
+      else expScore = 5; // Underqualified
+    } else {
+      // Unknown level - give moderate score based on user experience
+      if (userYearsExp > 0) expScore = 15; // User has experience, give moderate score
+      else expScore = 10; // No experience specified
+    }
+    
+    score += expScore;
 
     // 3. Location match (20% weight) - Check both current location and preferred location
     if (job.location) {
@@ -565,15 +584,20 @@ function calculateSimpleRecommendationScore(job, user) {
       const userSalary = parseInt(userSalaryStr) || 0;
       
       if (userSalary > 0 && jobAvg > 0) {
-        // If user expects more than 2x the job offers, it's a mismatch
-        if (userSalary > jobMax * 2) {
-          score -= 15; // Significant salary mismatch
-        } else if (userSalary > jobMax * 1.5) {
-          score -= 8; // Moderate salary mismatch
+        // If user expects more than 5x the job offers, it's a significant mismatch
+        if (userSalary > jobMax * 5) {
+          score -= 8; // Significant salary mismatch (reduced penalty)
+        } else if (userSalary > jobMax * 3) {
+          score -= 5; // Moderate salary mismatch (reduced penalty)
+        } else if (userSalary > jobMax * 2) {
+          score -= 2; // Minor salary mismatch
         } else if (userSalary >= jobMin * 0.8 && userSalary <= jobMax * 1.2) {
           score += 10; // Good salary match
         } else if (userSalary >= jobMin * 0.5) {
           score += 5; // Acceptable salary range
+        } else {
+          // User expects less than job minimum - might be underqualified or willing to accept lower
+          score += 3; // Small bonus for flexibility
         }
       }
     }
