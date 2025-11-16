@@ -190,6 +190,15 @@ const employerSchema = new mongoose.Schema(
       default: "active", 
       enum: ["active", "blocked"] 
     },
+    linkedIn: { type: Boolean, default: false },
+    instagram: { type: Boolean, default: false },
+    rewards: {
+      completeProfile: { type: Number, default: 0 },
+      applyForJobs: { type: Number, default: 0 },
+      referFriend: { type: Number, default: 0 },
+      totalPoints: { type: Number, default: 0 },
+      socialMediaBonus: { type: Number, default: 0 }
+    },
     notifications: {
       email: {
         applications: { type: Boolean, default: true },

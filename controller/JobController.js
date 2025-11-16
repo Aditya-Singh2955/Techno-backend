@@ -375,15 +375,19 @@ exports.getJobRecommendations = async (req, res) => {
         });
       }
 
-      // Use all active jobs as fallback
-      const fallbackJobs = allActiveJobs.map(job => ({
-        ...job.toObject(),
-        recommendationScore: calculateSimpleRecommendationScore(job, user)
-      }));
+      // Use all active jobs as fallback, but filter by 70%+ match
+      const fallbackJobs = allActiveJobs
+        .map(job => ({
+          ...job.toObject(),
+          recommendationScore: calculateSimpleRecommendationScore(job, user)
+        }))
+        .filter(job => job.recommendationScore >= 70) // Only show 70-100% matches
+        .sort((a, b) => b.recommendationScore - a.recommendationScore)
+        .slice(0, parseInt(limit));
 
       return res.json({
         message: "Job recommendations retrieved successfully",
-        data: fallbackJobs.sort((a, b) => b.recommendationScore - a.recommendationScore)
+        data: fallbackJobs
       });
     }
 
@@ -396,11 +400,19 @@ exports.getJobRecommendations = async (req, res) => {
       };
     });
 
-    // Sort by score and limit results
+    // Filter jobs with 70% or higher match and sort by score
     const recommendedJobs = scoredJobs
+      .filter(job => job.recommendationScore >= 70) // Only show 70-100% matches
       .sort((a, b) => b.recommendationScore - a.recommendationScore)
       .slice(0, parseInt(limit));
 
+    // If no jobs meet the 70% threshold, return empty array with message
+    if (recommendedJobs.length === 0) {
+      return res.json({
+        message: "No job recommendations available with 70% or higher match. Please complete your profile for better recommendations.",
+        data: []
+      });
+    }
 
     res.json({
       message: "Job recommendations retrieved successfully",
@@ -612,10 +624,13 @@ function calculateSimpleRecommendationScore(job, user) {
       }
     }
 
-    // Ensure score is between 0 and 100
-    return Math.max(0, Math.min(Math.round(score), 100));
+    // Ensure score is between 0 and 100 and round properly
+    const finalScore = Math.max(0, Math.min(score, 100));
+    // Round to integer for display
+    return Math.round(finalScore);
   } catch (error) {
     console.error("Error calculating recommendation score:", error);
+    console.error("Job ID:", job?._id, "User ID:", user?._id);
     return 0; // Return 0 on error instead of 50
   }
 }

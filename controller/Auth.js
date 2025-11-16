@@ -335,93 +335,126 @@ exports.completeEmployerProfile = async (req, res) => {
 exports.getUserProfileDetails = async (req, res) => {
   try {
     const userId = req.user?.id;
+    const userRole = req.user?.role;
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized. Please login first." });
     }
 
-    const user = await User.findById(userId).select('-password');
+    // Find user based on role
+    let user;
+    if (userRole === 'employer') {
+      user = await Employer.findById(userId).select('-password');
+    } else {
+      user = await User.findById(userId).select('-password');
+    }
     
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const publicProfile = user.getPublicProfile();
+    const publicProfile = user.getPublicProfile ? user.getPublicProfile() : user.toObject();
 
-    // Recalculate awaitingFeedback count to ensure accuracy
-    const Application = require("../model/ApplicationSchema");
-    const viewedApplicationsCount = await Application.countDocuments({
-      applicantId: userId,
-      viewedByEmployer: true
-    });
-    
-    // Update the user's awaitingFeedback count if it's different
-    if (publicProfile.applications?.awaitingFeedback !== viewedApplicationsCount) {
-      await User.findByIdAndUpdate(userId, {
-        'applications.awaitingFeedback': viewedApplicationsCount
+    // Recalculate awaitingFeedback count to ensure accuracy (only for jobseekers)
+    if (userRole !== 'employer') {
+      const Application = require("../model/ApplicationSchema");
+      const viewedApplicationsCount = await Application.countDocuments({
+        applicantId: userId,
+        viewedByEmployer: true
       });
-      // Update the publicProfile object
-      if (!publicProfile.applications) publicProfile.applications = {};
-      publicProfile.applications.awaitingFeedback = viewedApplicationsCount;
+      
+      // Update the user's awaitingFeedback count if it's different
+      if (publicProfile.applications?.awaitingFeedback !== viewedApplicationsCount) {
+        await User.findByIdAndUpdate(userId, {
+          'applications.awaitingFeedback': viewedApplicationsCount
+        });
+        // Update the publicProfile object
+        if (!publicProfile.applications) publicProfile.applications = {};
+        publicProfile.applications.awaitingFeedback = viewedApplicationsCount;
+      }
+    }
+
+    // Build response data based on role
+    const responseData = {
+      email: publicProfile.email,
+      role: publicProfile.role || userRole,
+      name: publicProfile.name || "",
+      points: publicProfile.points || 0,
+      membershipTier: publicProfile.membershipTier || "Blue",
+      linkedIn: user.linkedIn || false,
+      instagram: user.instagram || false,
+    };
+
+    // Add role-specific fields
+    if (userRole === 'employer') {
+      // Employer-specific fields
+      responseData.companyName = publicProfile.companyName || "";
+      responseData.profilePhoto = publicProfile.profilePhoto || "";
+      responseData.socialLinks = {
+        linkedin: publicProfile.socialLinks?.linkedin || "",
+        twitter: publicProfile.socialLinks?.twitter || "",
+        facebook: publicProfile.socialLinks?.facebook || "",
+      };
+      responseData.rewards = {
+        completeProfile: publicProfile.rewards?.completeProfile || 0,
+        applyForJobs: publicProfile.rewards?.applyForJobs || 0,
+        referFriend: publicProfile.rewards?.referFriend || 0,
+        totalPoints: publicProfile.rewards?.totalPoints || 0,
+        socialMediaBonus: publicProfile.rewards?.socialMediaBonus || 0,
+      };
+    } else {
+      // Jobseeker-specific fields
+      responseData.profilePicture = publicProfile.profilePicture || "";
+      responseData.fullName = publicProfile.fullName || "";
+      responseData.phoneNumber = publicProfile.phoneNumber || "";
+      responseData.location = publicProfile.location || "";
+      responseData.dateOfBirth = publicProfile.dateOfBirth || null;
+      responseData.nationality = publicProfile.nationality || "";
+      responseData.emirateId = publicProfile.emirateId || "";
+      responseData.passportNumber = publicProfile.passportNumber || "";
+      responseData.introVideo = publicProfile.introVideo || "";
+      responseData.resumeDocument = publicProfile.resumeDocument || "";
+      responseData.professionalSummary = publicProfile.professionalSummary || "";
+      responseData.refersLink = publicProfile.refersLink || "";
+      responseData.referredMember = publicProfile.referredMember || "";
+      responseData.professionalExperience = publicProfile.professionalExperience || [];
+      responseData.education = publicProfile.education || [];
+      responseData.skills = publicProfile.skills || [];
+      responseData.certifications = publicProfile.certifications || [];
+      responseData.jobPreferences = {
+        preferredJobType: publicProfile.jobPreferences?.preferredJobType || [],
+        salaryExpectation: publicProfile.jobPreferences?.salaryExpectation || "",
+        preferredLocation: publicProfile.jobPreferences?.preferredLocation || "",
+        availability: publicProfile.jobPreferences?.availability || "",
+        resumeAndDocs: publicProfile.jobPreferences?.resumeAndDocs || [],
+      };
+      responseData.socialLinks = {
+        linkedIn: publicProfile.socialLinks?.linkedIn || "",
+        instagram: publicProfile.socialLinks?.instagram || "",
+        twitterX: publicProfile.socialLinks?.twitterX || "",
+      };
+      responseData.rmService = publicProfile.rmService || "Inactive";
+      responseData.rewards = {
+        completeProfile: publicProfile.rewards?.completeProfile || 0,
+        applyForJobs: publicProfile.rewards?.applyForJobs || 0,
+        referFriend: publicProfile.rewards?.referFriend || 0,
+        rmService: publicProfile.rewards?.rmService || 0,
+        totalPoints: publicProfile.rewards?.totalPoints || 0,
+      };
+      responseData.referralRewardPoints = publicProfile.referralRewardPoints || 0;
+      responseData.applications = {
+        totalApplications: publicProfile.applications?.totalApplications || 0,
+        activeApplications: publicProfile.applications?.activeApplications || 0,
+        awaitingFeedback: publicProfile.applications?.awaitingFeedback || 0,
+        appliedJobs: publicProfile.applications?.appliedJobs || [],
+      };
+      responseData.savedJobs = publicProfile.savedJobs || [];
+      responseData.profileCompleted = publicProfile.profileCompleted || "0";
+      responseData.deductedPoints = publicProfile.deductedPoints || 0;
     }
 
     res.status(200).json({
       success: true,
-      data: {
-        email: publicProfile.email,
-        role: publicProfile.role,
-        name: publicProfile.name,
-        profilePicture: publicProfile.profilePicture || "",
-        fullName: publicProfile.fullName || "",
-        phoneNumber: publicProfile.phoneNumber || "",
-        location: publicProfile.location || "",
-        dateOfBirth: publicProfile.dateOfBirth || null,
-        nationality: publicProfile.nationality || "",
-        emirateId: publicProfile.emirateId || "",
-        passportNumber: publicProfile.passportNumber || "",
-        introVideo: publicProfile.introVideo || "",
-        resumeDocument: publicProfile.resumeDocument || "",
-        professionalSummary: publicProfile.professionalSummary || "",
-        refersLink: publicProfile.refersLink || "",
-        referredMember: publicProfile.referredMember || "",
-        professionalExperience: publicProfile.professionalExperience || [],
-        education: publicProfile.education || [],
-        skills: publicProfile.skills || [],
-        certifications: publicProfile.certifications || [],
-        jobPreferences: {
-          preferredJobType: publicProfile.jobPreferences?.preferredJobType || [],
-          salaryExpectation: publicProfile.jobPreferences?.salaryExpectation || "",
-          preferredLocation: publicProfile.jobPreferences?.preferredLocation || "",
-          availability: publicProfile.jobPreferences?.availability || "",
-          resumeAndDocs: publicProfile.jobPreferences?.resumeAndDocs || [],
-        },
-        socialLinks: {
-          linkedIn: publicProfile.socialLinks?.linkedIn || "",
-          instagram: publicProfile.socialLinks?.instagram || "",
-          twitterX: publicProfile.socialLinks?.twitterX || "",
-        },
-        rmService: publicProfile.rmService || "Inactive",
-        rewards: {
-          completeProfile: publicProfile.rewards?.completeProfile || 0,
-          applyForJobs: publicProfile.rewards?.applyForJobs || 0,
-          referFriend: publicProfile.rewards?.referFriend || 0,
-          rmService: publicProfile.rewards?.rmService || 0, // Points from RM service purchase
-          totalPoints: publicProfile.rewards?.totalPoints || 0,
-        },
-        linkedIn: user.linkedIn || false,
-        instagram: user.instagram || false,
-        referralRewardPoints: publicProfile.referralRewardPoints || 0,
-        applications: {
-          totalApplications: publicProfile.applications?.totalApplications || 0,
-          activeApplications: publicProfile.applications?.activeApplications || 0,
-          awaitingFeedback: publicProfile.applications?.awaitingFeedback || 0,
-          appliedJobs: publicProfile.applications?.appliedJobs || [],
-        },
-        savedJobs: publicProfile.savedJobs || [],
-        profileCompleted: publicProfile.profileCompleted || "0",
-        points: publicProfile.points || 0,
-        deductedPoints: publicProfile.deductedPoints || 0,
-        membershipTier: publicProfile.membershipTier || "Blue",
-      }
+      data: responseData
     });
   } catch (error) {
     console.error("Get profile details error:", error);
@@ -858,6 +891,7 @@ exports.validateResetToken = async (req, res) => {
 exports.followSocialMedia = async (req, res) => {
   try {
     const userId = req.user?.id;
+    const userRole = req.user?.role;
     const { platform } = req.body; // 'linkedIn' or 'instagram'
 
     if (!userId) {
@@ -874,8 +908,14 @@ exports.followSocialMedia = async (req, res) => {
       });
     }
 
-    // Find user
-    const user = await User.findById(userId);
+    // Find user based on role
+    let user;
+    if (userRole === 'employer') {
+      user = await Employer.findById(userId);
+    } else {
+      user = await User.findById(userId);
+    }
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -931,7 +971,12 @@ exports.followSocialMedia = async (req, res) => {
     }
 
     // Get updated points
-    const updatedUser = await User.findById(userId);
+    let updatedUser;
+    if (userRole === 'employer') {
+      updatedUser = await Employer.findById(userId);
+    } else {
+      updatedUser = await User.findById(userId);
+    }
     const totalPoints = updatedUser.points || 0;
 
     res.status(200).json({

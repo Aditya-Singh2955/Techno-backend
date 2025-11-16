@@ -175,11 +175,22 @@ exports.createApplication = async (req, res) => {
       return res.status(400).json({ message: "Job is not accepting applications" });
     }
 
-    // Check if user already applied
-    const existingApplication = await Application.findOne({ jobId, applicantId });
+    // Check if user already applied (excluding withdrawn applications - allow re-applying after withdrawal)
+    const existingApplication = await Application.findOne({ 
+      jobId, 
+      applicantId, 
+      status: { $ne: 'withdrawn' } 
+    });
     if (existingApplication) {
       return res.status(400).json({ message: "You have already applied to this job" });
     }
+
+    // Check if there's a withdrawn application for this job (for re-application)
+    const withdrawnApplication = await Application.findOne({ 
+      jobId, 
+      applicantId, 
+      status: 'withdrawn' 
+    });
 
     // Get applicant details for email (do before response)
     const applicant = await User.findById(applicantId).select('email fullName name');
@@ -195,47 +206,83 @@ exports.createApplication = async (req, res) => {
       name: applicant.name
     });
 
-    // Create application
-    const application = new Application({
-      jobId,
-      applicantId,
-      employerId: job.employer,
-      expectedSalary,
-      availability,
-      coverLetter,
-      resume: req.body.resume || "", // Should be file URL from upload
-    });
+    let application;
+    
+    if (withdrawnApplication) {
+      // Reactivate the withdrawn application instead of creating a new one
+      application = await Application.findByIdAndUpdate(
+        withdrawnApplication._id,
+        {
+          status: 'pending',
+          expectedSalary,
+          availability,
+          coverLetter,
+          resume: req.body.resume || withdrawnApplication.resume || "",
+          appliedDate: new Date(),
+          updatedAt: new Date()
+        },
+        { new: true }
+      );
 
-    await application.save();
+      // Add back to job's applications array if not already there
+      await Job.findByIdAndUpdate(jobId, {
+        $addToSet: { applications: application._id } // $addToSet prevents duplicates
+      });
 
-    // Update job applications array
-    await Job.findByIdAndUpdate(jobId, {
-      $push: { applications: application._id }
-    });
+      // Add back to employer's applications array if not already there
+      await Employer.findByIdAndUpdate(job.employer, {
+        $addToSet: { applications: application._id } // $addToSet prevents duplicates
+      });
 
-    // Update employer applications array
-    await Employer.findByIdAndUpdate(job.employer, {
-      $push: { applications: application._id }
-    });
-
-    // Update user's applied jobs and award points for applying
-    await User.findByIdAndUpdate(applicantId, {
-      $push: { 
-        "applications.appliedJobs": {
-          jobId,
-          role: job.title,
-          company: job.companyName,
-          date: new Date()
+      // Only increment activeApplications (not totalApplications since it was already counted)
+      await User.findByIdAndUpdate(applicantId, {
+        $inc: { 
+          "applications.activeApplications": 1
         }
-      },
-      $inc: { 
-        "applications.totalApplications": 1,
-        "applications.activeApplications": 1,
-        "rewards.applyForJobs": 20, // Award 20 points for applying to a job
-        "rewards.totalPoints": 20,  // Add to total points (rewards)
-        "points": 20                // Add to root points field
-      }
-    });
+      });
+    } else {
+      // Create new application
+      application = new Application({
+        jobId,
+        applicantId,
+        employerId: job.employer,
+        expectedSalary,
+        availability,
+        coverLetter,
+        resume: req.body.resume || "", // Should be file URL from upload
+      });
+
+      await application.save();
+
+      // Update job applications array
+      await Job.findByIdAndUpdate(jobId, {
+        $push: { applications: application._id }
+      });
+
+      // Update employer applications array
+      await Employer.findByIdAndUpdate(job.employer, {
+        $push: { applications: application._id }
+      });
+
+      // Update user's applied jobs and award points for applying
+      await User.findByIdAndUpdate(applicantId, {
+        $push: { 
+          "applications.appliedJobs": {
+            jobId,
+            role: job.title,
+            company: job.companyName,
+            date: new Date()
+          }
+        },
+        $inc: { 
+          "applications.totalApplications": 1,
+          "applications.activeApplications": 1,
+          "rewards.applyForJobs": 20, // Award 20 points for applying to a job
+          "rewards.totalPoints": 20,  // Add to total points (rewards)
+          "points": 20                // Add to root points field
+        }
+      });
+    }
 
     // Send HTTP response FIRST
     res.status(201).json({
@@ -1045,8 +1092,12 @@ exports.createReferralApplication = async (req, res) => {
       }
     }
 
-    // Check if User B already applied for this job
-    const existingApplication = await Application.findOne({ jobId, applicantId: userB._id });
+    // Check if User B already applied for this job (excluding withdrawn applications - allow re-applying after withdrawal)
+    const existingApplication = await Application.findOne({ 
+      jobId, 
+      applicantId: userB._id, 
+      status: { $ne: 'withdrawn' } 
+    });
     if (existingApplication) {
       return res.status(400).json({ message: "This person has already applied to this job" });
     }
