@@ -24,9 +24,12 @@ router.post("/upload", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
+    const resourceType = req.body.resource_type || "auto";
+    const folder = req.body.folder || "findr_uploads";
+
     const result = await streamUpload(req.file.buffer, {
-      resource_type: "auto",
-      folder: "findr_uploads",
+      resource_type: resourceType,
+      folder,
       original_filename: req.file.originalname,
       use_filename: true,
       unique_filename: true,

@@ -23,6 +23,7 @@ const employer = require("./route/employer");
 const application = require("./route/application");
 const admin = require("./route/admin");
 const quote = require("./route/quote");
+const order = require("./route/order");
 
 app.use("/api/v1", user);
 app.use("/api/v1", upload);
@@ -31,6 +32,7 @@ app.use("/api/v1", employer);
 app.use("/api/v1", application);
 app.use("/api/v1", admin);
 app.use("/api/v1", quote);
+app.use("/api/v1", order);
 
 app.post('/create-checkout-session', async (req, res) => {
   try {
