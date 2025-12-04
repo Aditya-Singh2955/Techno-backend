@@ -72,7 +72,15 @@ exports.signup = async (req, res) => {
       if (newUser.skills && newUser.skills.length > 0) completed++;
       if (newUser.jobPreferences?.preferredJobType && newUser.jobPreferences.preferredJobType.length > 0) completed++;
       if (newUser.certifications && newUser.certifications.length > 0) completed++;
-      if (newUser.jobPreferences?.resumeAndDocs && newUser.jobPreferences.resumeAndDocs.length > 0) completed++;
+      // Check resume in multiple possible locations (matching frontend logic)
+      const hasResumeSignup = !!(newUser.resumeDocument && newUser.resumeDocument.trim() !== '') ||
+                              !!(newUser.resumeUrl && newUser.resumeUrl.trim() !== '') ||
+                              !!(newUser.resume && (typeof newUser.resume === 'string' ? newUser.resume.trim() !== '' : newUser.resume)) ||
+                              !!(newUser.jobPreferences?.resumeAndDocs && newUser.jobPreferences.resumeAndDocs.length > 0) ||
+                              !!(newUser.documents && newUser.documents.length > 0 && newUser.documents.some((doc) => 
+                                doc.type === 'resume' || doc.name?.toLowerCase().includes('resume') || doc.name?.toLowerCase().includes('cv')
+                              ));
+      if (hasResumeSignup) completed++;
       
       if (newUser.socialLinks?.linkedIn) completed++;
       if (newUser.socialLinks?.instagram) completed++;

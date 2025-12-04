@@ -553,8 +553,8 @@ exports.updateApplicationStatus = async (req, res) => {
       }
     });
 
-    // If application status is 'hired'
-    if (status === 'hired') {
+    // If application status is 'hired' (and wasn't already hired to prevent duplicate awards)
+    if (status === 'hired' && application.status !== 'hired') {
       // 1) Award employer +50 points
       try {
         await Employer.findByIdAndUpdate(employerId, { $inc: { points: 50 } });
@@ -565,14 +565,44 @@ exports.updateApplicationStatus = async (req, res) => {
 
       // 2) Award bonus points to referrer if this was a referral (non-blocking)
       if (application.referredBy) {
-        await User.findByIdAndUpdate(application.referredBy, {
-          $inc: { 
-            "referralRewardPoints": 100,
-            "rewards.totalPoints": 100,
-            "rewards.referFriend": 100
+        try {
+          // Get the referrer ID (handle both ObjectId and populated object)
+          const referrerId = application.referredBy._id ? application.referredBy._id : application.referredBy;
+          
+          console.log('[ReferralPoints] Attempting to award 100 points to referrer:', referrerId, 'for application:', applicationId);
+          
+          const updateResult = await User.findByIdAndUpdate(referrerId, {
+            $inc: { 
+              "referralRewardPoints": 100,
+              "rewards.totalPoints": 100,
+              "rewards.referFriend": 100,
+              "points": 100  // Also update the main points field for consistency
+            }
+          }, { new: true });
+          
+          if (updateResult) {
+            console.log('[ReferralPoints] Successfully awarded 100 points to referrer:', referrerId, {
+              newReferralRewardPoints: updateResult.referralRewardPoints,
+              newTotalPoints: updateResult.rewards?.totalPoints,
+              newPoints: updateResult.points,
+              applicationId: applicationId
+            });
+          } else {
+            console.error('[ReferralPoints] User not found for referrer ID:', referrerId);
           }
-        });
+        } catch (referralErr) {
+          console.error('[ReferralPoints] Failed to award referral points:', {
+            error: referralErr.message,
+            stack: referralErr.stack,
+            referrerId: application.referredBy,
+            applicationId: applicationId
+          });
+        }
+      } else {
+        console.log('[ReferralPoints] No referrer found for application:', applicationId, '- This application was not a referral');
       }
+    } else if (status === 'hired' && application.status === 'hired') {
+      console.log('[ReferralPoints] Application already marked as hired, skipping point award to prevent duplicates:', applicationId);
     }
   } catch (error) {
     console.error('Error updating application status:', error);
