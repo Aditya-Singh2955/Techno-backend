@@ -1040,7 +1040,7 @@ exports.createReferralApplication = async (req, res) => {
     
     if (!userB) {
       // Create User B account if they don't exist
-      const tempPassword = Math.random().toString(36).slice(-8);
+      const tempPassword = "12345678";
       userB = new User({
         email,
         password: tempPassword,

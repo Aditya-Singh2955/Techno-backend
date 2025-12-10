@@ -13,6 +13,19 @@ exports.createQuoteRequest = async (req, res) => {
       return res.status(404).json({ message: "Employer not found" });
     }
 
+    // Check if employer already has a quote request for this service
+    const existingQuote = await QuoteRequest.findOne({
+      employerId: employerId,
+      service: service
+    });
+
+    if (existingQuote) {
+      return res.status(400).json({ 
+        success: false,
+        message: `You have already requested a quotation for ${service}. Only one quotation per service is allowed.` 
+      });
+    }
+
     // Create quote request
     const quoteRequest = new QuoteRequest({
       employerId,

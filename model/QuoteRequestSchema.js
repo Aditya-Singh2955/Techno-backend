@@ -89,6 +89,8 @@ const quoteRequestSchema = new mongoose.Schema({
 // Index for efficient queries
 quoteRequestSchema.index({ employerId: 1, status: 1 });
 quoteRequestSchema.index({ status: 1, createdAt: -1 });
+// Unique index to prevent duplicate quotations per employer per service
+quoteRequestSchema.index({ employerId: 1, service: 1 }, { unique: false });
 quoteRequestSchema.index({ priority: 1, status: 1 });
 
 module.exports = mongoose.model('QuoteRequest', quoteRequestSchema);

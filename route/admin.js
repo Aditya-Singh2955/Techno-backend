@@ -1119,7 +1119,7 @@ router.get("/admin/services", async (req, res) => {
               { 'orders.0': { $exists: true } }
             ]
           })
-            .select('_id name fullName email phoneNumber location rmService orders loginStatus createdAt')
+            .select('_id name fullName email phoneNumber location rmService orders loginStatus createdAt updatedAt')
             .sort({ [sortBy]: sortDirection })
             .lean()
         : Promise.resolve([]),
@@ -1133,7 +1133,7 @@ router.get("/admin/services", async (req, res) => {
               { subscriptionPlan: { $exists: true } }
             ]
           })
-            .select('_id companyName email phoneNumber industry hrServices subscriptionPlan subscriptionStatus loginStatus createdAt')
+            .select('_id name companyName email phoneNumber industry hrServices subscriptionPlan subscriptionStatus subscriptionExpiry loginStatus createdAt updatedAt')
             .sort({ [sortBy]: sortDirection })
             .lean()
         : Promise.resolve([])
@@ -1150,6 +1150,8 @@ router.get("/admin/services", async (req, res) => {
       // Add RM Service if it exists (active or inactive)
       if (user.rmService) {
         const rmStatus = user.rmService === 'Active' ? 'active' : 'stopped';
+        // Use updatedAt if RM service is active (likely when it was activated), otherwise use createdAt
+        const rmServiceDate = (user.rmService === 'Active' && user.updatedAt) ? user.updatedAt : user.createdAt;
         services.push({
           _id: user._id.toString(),
           id: user._id.toString(),
@@ -1157,7 +1159,7 @@ router.get("/admin/services", async (req, res) => {
           buyerType: 'jobseeker',
           serviceName: 'RM Service',
           serviceType: 'Relationship Manager',
-          orderDate: user.createdAt,
+          orderDate: rmServiceDate,
           status: user.loginStatus === 'blocked' ? 'payment_pending' : rmStatus,
           amount: 0, // RM service might be free or points-based
           description: `RM Service for ${user.fullName || user.name}`,
@@ -1183,7 +1185,7 @@ router.get("/admin/services", async (req, res) => {
             buyerType: 'jobseeker',
             serviceName: order.service,
             serviceType: 'Premium Service',
-            orderDate: order.orderDate,
+            orderDate: order.orderDate || order.createdAt || new Date(),
             status: orderStatus,
             amount: order.totalAmount,
             description: `${order.service} for ${user.fullName || user.name}`,
@@ -1205,17 +1207,30 @@ router.get("/admin/services", async (req, res) => {
         } else if (employer.subscriptionStatus !== 'active') {
           subscriptionStatus = 'payment_pending';
         }
+        // Calculate subscription start date: use expiry date minus typical duration, or updatedAt, or createdAt
+        let subscriptionStartDate = employer.createdAt;
+        if (employer.subscriptionExpiry) {
+          // Estimate start date based on expiry (assuming 1 month for basic, 3 months for premium, 12 months for enterprise)
+          const durationMap = { basic: 1, premium: 3, enterprise: 12 };
+          const months = durationMap[employer.subscriptionPlan] || 1;
+          subscriptionStartDate = new Date(employer.subscriptionExpiry);
+          subscriptionStartDate.setMonth(subscriptionStartDate.getMonth() - months);
+        } else if (employer.updatedAt && employer.subscriptionStatus === 'active') {
+          // If subscription is active and has updatedAt, use that as a better estimate
+          subscriptionStartDate = employer.updatedAt;
+        }
+        
         services.push({
           _id: employer._id.toString(),
           id: employer._id.toString(),
-          buyerName: employer.companyName,
+          buyerName: employer.companyName || employer.name || 'N/A',
           buyerType: 'employer',
           serviceName: `${employer.subscriptionPlan.charAt(0).toUpperCase() + employer.subscriptionPlan.slice(1)} Subscription`,
           serviceType: 'Subscription Plan',
-          orderDate: employer.createdAt,
+          orderDate: subscriptionStartDate,
           status: subscriptionStatus,
           amount: employer.subscriptionPlan === 'basic' ? 99 : employer.subscriptionPlan === 'premium' ? 299 : 599,
-          description: `${employer.subscriptionPlan} subscription for ${employer.companyName}`,
+          description: `${employer.subscriptionPlan} subscription for ${employer.companyName || employer.name || 'Unknown Company'}`,
           orderUrl: `/admin/users/employer/${employer._id}`,
           userEmail: employer.email,
           userId: employer._id.toString()
@@ -1233,14 +1248,14 @@ router.get("/admin/services", async (req, res) => {
           services.push({
             _id: `${employer._id}_hr_${index}`,
             id: `${employer._id}_hr_${index}`,
-            buyerName: employer.companyName,
+            buyerName: employer.companyName || employer.name || 'N/A',
             buyerType: 'employer',
             serviceName: service.serviceName.charAt(0).toUpperCase() + service.serviceName.slice(1).replace('_', ' '),
             serviceType: 'HR Service',
-            orderDate: service.startDate || employer.createdAt,
+            orderDate: service.startDate || service.createdAt || employer.updatedAt || employer.createdAt,
             status: serviceStatus,
             amount: 199, // Default HR service amount
-            description: `${service.serviceName} service for ${employer.companyName}`,
+            description: `${service.serviceName} service for ${employer.companyName || employer.name || 'Unknown Company'}`,
             orderUrl: `/admin/users/employer/${employer._id}`,
             userEmail: employer.email,
             userId: employer._id.toString()
