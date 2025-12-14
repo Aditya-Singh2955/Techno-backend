@@ -72,15 +72,7 @@ exports.signup = async (req, res) => {
       if (newUser.skills && newUser.skills.length > 0) completed++;
       if (newUser.jobPreferences?.preferredJobType && newUser.jobPreferences.preferredJobType.length > 0) completed++;
       if (newUser.certifications && newUser.certifications.length > 0) completed++;
-      // Check resume in multiple possible locations (matching frontend logic)
-      const hasResumeSignup = !!(newUser.resumeDocument && newUser.resumeDocument.trim() !== '') ||
-                              !!(newUser.resumeUrl && newUser.resumeUrl.trim() !== '') ||
-                              !!(newUser.resume && (typeof newUser.resume === 'string' ? newUser.resume.trim() !== '' : newUser.resume)) ||
-                              !!(newUser.jobPreferences?.resumeAndDocs && newUser.jobPreferences.resumeAndDocs.length > 0) ||
-                              !!(newUser.documents && newUser.documents.length > 0 && newUser.documents.some((doc) => 
-                                doc.type === 'resume' || doc.name?.toLowerCase().includes('resume') || doc.name?.toLowerCase().includes('cv')
-                              ));
-      if (hasResumeSignup) completed++;
+      if (newUser.jobPreferences?.resumeAndDocs && newUser.jobPreferences.resumeAndDocs.length > 0) completed++;
       
       if (newUser.socialLinks?.linkedIn) completed++;
       if (newUser.socialLinks?.instagram) completed++;
@@ -615,8 +607,9 @@ exports.updateProfile = async (req, res) => {
     const calculatedPoints = 50 + (percentage * 2); // Base 50 + 2 points per percentage (100% = 250 points)
     const applicationPoints = updatedUser?.rewards?.applyForJobs || 0; // Points from job applications
     const rmServicePoints = updatedUser?.rewards?.rmService || 0; // Points from RM service purchase
-    const socialMediaBonus = updatedUser?.rewards?.socialMediaBonus || 0; // Bonus points from following social media
-    const totalPoints = calculatedPoints + applicationPoints + rmServicePoints + socialMediaBonus;
+    const socialMediaBonus = updatedUser?.rewards?.socialMediaBonus || 0;
+    const referralPoints = updatedUser?.rewards?.referFriend || 0;
+    const totalPoints = calculatedPoints + applicationPoints + rmServicePoints + socialMediaBonus + referralPoints;
     const calculatedProfileCompleted = percentage.toString();
 
     // Update the user with calculated points and profile completion

@@ -6,6 +6,7 @@ const Job = require("../model/JobSchema");
 const Application = require("../model/ApplicationSchema");
 const QuoteRequest = require("../model/QuoteRequestSchema");
 const Admin = require("../model/AdminSchema");
+const Grievance = require("../model/Grievance");
 const jwt = require("jsonwebtoken");
 
 // Create Admin Account
@@ -1436,6 +1437,67 @@ router.put("/admin/service-management/:serviceId", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error while updating service status",
+      error: error.message
+    });
+  }
+});
+
+router.get("/admin/grievances", async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+
+    const grievances = await Grievance.find({})
+      .populate('userId', 'name email fullName')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Grievance.countDocuments({});
+
+    res.json({
+      success: true,
+      data: {
+        grievances,
+        pagination: {
+          current: parseInt(page),
+          pages: Math.ceil(total / limit),
+          total
+        }
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch grievances",
+      error: error.message
+    });
+  }
+});
+
+router.get("/admin/grievances/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const grievance = await Grievance.findById(id)
+      .populate('userId', 'name email fullName');
+
+    if (!grievance) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Grievance not found" 
+      });
+    }
+
+    res.json({
+      success: true,
+      data: grievance
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch grievance",
       error: error.message
     });
   }

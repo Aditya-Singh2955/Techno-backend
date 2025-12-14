@@ -553,9 +553,7 @@ exports.updateApplicationStatus = async (req, res) => {
       }
     });
 
-    // If application status is 'hired' (and wasn't already hired to prevent duplicate awards)
     if (status === 'hired' && application.status !== 'hired') {
-      // 1) Award employer +50 points
       try {
         await Employer.findByIdAndUpdate(employerId, { $inc: { points: 50 } });
         console.log('[Points] +50 awarded to employer for hiring:', employerId);
@@ -563,27 +561,23 @@ exports.updateApplicationStatus = async (req, res) => {
         console.error('[Points] Failed to award hiring points:', pointsErr);
       }
 
-      // 2) Award bonus points to referrer if this was a referral (non-blocking)
       if (application.referredBy) {
         try {
-          // Get the referrer ID (handle both ObjectId and populated object)
           const referrerId = application.referredBy._id ? application.referredBy._id : application.referredBy;
-          
-          console.log('[ReferralPoints] Attempting to award 100 points to referrer:', referrerId, 'for application:', applicationId);
           
           const updateResult = await User.findByIdAndUpdate(referrerId, {
             $inc: { 
-              "referralRewardPoints": 100,
-              "rewards.totalPoints": 100,
-              "rewards.referFriend": 100,
-              "points": 100  // Also update the main points field for consistency
+              "points": 50,
+              "referralRewardPoints": 50,
+              "rewards.totalPoints": 50,
+              "rewards.referFriend": 50
             }
           }, { new: true });
           
           if (updateResult) {
-            console.log('[ReferralPoints] Successfully awarded 100 points to referrer:', referrerId, {
+            console.log('[ReferralPoints] Successfully awarded 50 points to referrer:', referrerId, {
               newReferralRewardPoints: updateResult.referralRewardPoints,
-              newTotalPoints: updateResult.rewards?.totalPoints,
+              newReferFriendPoints: updateResult.rewards?.referFriend,
               newPoints: updateResult.points,
               applicationId: applicationId
             });

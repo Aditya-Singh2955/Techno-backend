@@ -1,5 +1,14 @@
 const User = require('../model/UserSchemas');
 
+// Helper function to capitalize first letter of each word
+const capitalizeWords = (str) => {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
 // Get all services (orders) with pagination and filtering
 const getAllServices = async (req, res) => {
   try {
@@ -81,12 +90,17 @@ const getAllServices = async (req, res) => {
         console.log(`Processing user ${user.fullName} with ${user.orders.length} orders`);
         user.orders.forEach(order => {
           // Map order data properly for RM Service and other services
-          const serviceName = order.serviceName || order.service || 'RM Service';
-          const serviceType = order.serviceType || 'Relationship Management';
+          const rawServiceName = order.serviceName || order.service || 'RM Service';
+          const rawServiceType = order.serviceType || 'Relationship Management';
           const orderDate = order.createdAt || order.orderDate || new Date();
           const status = order.status || 'active';
           const amount = order.amount || order.price || 0;
-          const description = order.description || `${serviceName} - Premium service order`;
+          const rawDescription = order.description || `${rawServiceName} - Premium service order`;
+
+          // Capitalize service names, types, and descriptions at the source
+          const serviceName = capitalizeWords(rawServiceName);
+          const serviceType = capitalizeWords(rawServiceType);
+          const description = capitalizeWords(rawDescription);
 
           const serviceData = {
             _id: order._id,
