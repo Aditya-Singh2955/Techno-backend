@@ -21,6 +21,19 @@ const findrUserSchema = new mongoose.Schema(
       type: Date,
       default: undefined,
     },
+    referralCode: {
+      type: String,
+      default: "",
+    },
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FindrUser",
+      default: null,
+    },
+    visaExpiryDate: {
+      type: Date,
+      default: null,
+    },
     role: {
       type: String,
       enum: ["jobseeker", "employer"],
@@ -229,6 +242,29 @@ const findrUserSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Pre-save hook to generate referral code for new users
+findrUserSchema.pre('save', async function (next) {
+  // Only generate referral code if this is a new user and referralCode is empty
+  if (this.isNew && (!this.referralCode || this.referralCode === '')) {
+    // Get user's name (prefer name, then fullName, then email username)
+    const userName = this.name || this.fullName || this.email?.split('@')[0] || 'USER';
+    
+    // Extract first 3 letters of name (uppercase), pad if needed
+    const namePart = userName
+      .replace(/[^a-zA-Z]/g, '') // Remove non-alphabetic characters
+      .substring(0, 3)
+      .toUpperCase()
+      .padEnd(3, 'X'); // Pad with 'X' if name is too short
+    
+    // Generate random 2-digit number (10-99)
+    const randomNum = Math.floor(Math.random() * 90) + 10;
+    
+    // Create referral code: FINDR + namePart + randomNum
+    this.referralCode = `FINDR${namePart}${randomNum}`;
+  }
+  next();
+});
 
 // Method to compare password
 findrUserSchema.methods.comparePassword = function (candidatePassword) {

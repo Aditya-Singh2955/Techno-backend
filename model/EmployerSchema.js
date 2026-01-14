@@ -21,6 +21,15 @@ const employerSchema = new mongoose.Schema(
       type: Date,
       default: undefined,
     },
+    referralCode: {
+      type: String,
+      default: "",
+    },
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FindrUser",
+      default: null,
+    },
     role: {
       type: String,
       default: "employer",

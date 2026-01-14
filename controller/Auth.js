@@ -6,9 +6,21 @@ const { sendPasswordResetEmail, sendWelcomeEmail } = require("../services/emailS
 require("dotenv").config();
 
 
+const generateReferralCode = (userName) => {
+  const namePart = userName
+    .replace(/[^a-zA-Z]/g, '') 
+    .substring(0, 3)
+    .toUpperCase()
+    .padEnd(3, 'X'); 
+  
+  const randomNum = Math.floor(Math.random() * 90) + 10;
+  
+  return `FINDR${namePart}${randomNum}`;
+};
+
 exports.signup = async (req, res) => {
   try {
-    const { email, password, role, ...otherData } = req.body;
+    const { email, password, role, referralCode, ...otherData } = req.body;
 
     // Validate role
     if (role !== "jobseeker" && role !== "employer") {
@@ -28,13 +40,37 @@ exports.signup = async (req, res) => {
       });
     }
 
+    // Handle referral code if provided
+    let referredBy = null;
+    if (referralCode && referralCode.trim() !== '') {
+      // Find the user with this referral code (only from User collection, not Employer)
+      const referringUser = await User.findOne({ 
+        referralCode: referralCode.trim().toUpperCase() 
+      });
+      
+      if (referringUser) {
+        referredBy = referringUser._id;
+      } else {
+        // Referral code is invalid, but we'll still create the account
+        // You can choose to return an error here if you want strict validation
+        console.log(`Invalid referral code provided: ${referralCode}`);
+      }
+    }
+
     // Create new user based on role
     const Model = role === "employer" ? Employer : User;
+    const userName = otherData.name || otherData.fullName || email.split('@')[0];
+    
+    // Generate referral code for new user
+    const newUserReferralCode = generateReferralCode(userName);
+    
     const userData = {
       email,
       password,
       role,
-      name: otherData.name || otherData.fullName || email.split('@')[0], // Fallback to email username if no name provided
+      name: userName,
+      referralCode: newUserReferralCode, // Add referral code explicitly during signup
+      ...(referredBy && { referredBy }), // Add referredBy if referral code was valid
       ...(role === "employer" ? otherData : { ...otherData, fullName: otherData.name })
     };
     let newUser = new Model(userData);
@@ -450,6 +486,7 @@ exports.getUserProfileDetails = async (req, res) => {
       responseData.savedJobs = publicProfile.savedJobs || [];
       responseData.profileCompleted = publicProfile.profileCompleted || "0";
       responseData.deductedPoints = publicProfile.deductedPoints || 0;
+      responseData.referralCode = publicProfile.referralCode || user.referralCode || "";
     }
 
     res.status(200).json({
@@ -478,6 +515,7 @@ exports.updateProfile = async (req, res) => {
       emirateId,
       passportNumber,
       employmentVisa,
+      visaExpiryDate,
       introVideo,
       professionalSummary,
 
@@ -512,6 +550,22 @@ exports.updateProfile = async (req, res) => {
       }
     }
 
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'nationality')) {
+      const nationalityStr = (req.body.nationality ?? '').toString().trim().toLowerCase();
+      const isEmirati = nationalityStr.includes("emirati") || nationalityStr.includes("uae");
+      
+      if (!isEmirati && nationalityStr) {
+        if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'visaExpiryDate')) {
+          const visaExpiryDateStr = (req.body.visaExpiryDate ?? '').toString().trim();
+          if (!visaExpiryDateStr || visaExpiryDateStr === '') {
+            return res.status(400).json({ message: "Visa Expiry Date is required for non-Emirati users." });
+          }
+        } else {
+          return res.status(400).json({ message: "Visa Expiry Date is required for non-Emirati users." });
+        }
+      }
+    }
+
     // Get user ID from token
     const userId = req.user?.id; // You'll need to implement auth middleware to get this
     if (!userId) {
@@ -532,6 +586,7 @@ exports.updateProfile = async (req, res) => {
           ...(nationality && { nationality }),
           ...(emirateId && { emirateId }),
           ...(passportNumber && { passportNumber }),
+          ...(visaExpiryDate !== undefined && { visaExpiryDate: visaExpiryDate || null }),
           ...(introVideo && { introVideo }),
           ...(professionalSummary && { professionalSummary }),
           
