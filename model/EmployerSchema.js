@@ -224,6 +224,22 @@ const employerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+employerSchema.pre('save', async function (next) {
+  if (this.isNew && (!this.referralCode || this.referralCode === '')) {
+    const employerName = this.name || this.companyName || this.email?.split('@')[0] || 'EMPLOYER';
+    
+    const namePart = employerName
+      .replace(/[^a-zA-Z]/g, '')
+      .substring(0, 3)
+      .toUpperCase()
+      .padEnd(3, 'X');
+    
+    const randomNum = Math.floor(Math.random() * 90) + 10;
+    this.referralCode = `FINDR${namePart}${randomNum}`;
+  }
+  next();
+});
+
 // Method to compare password
 employerSchema.methods.comparePassword = function (candidatePassword) {
   return this.password === candidatePassword;

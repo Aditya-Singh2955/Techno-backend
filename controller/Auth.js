@@ -77,12 +77,43 @@ exports.signup = async (req, res) => {
 
     await newUser.save();
 
-    // Calculate initial points for jobseekers based on profile completion
+    // Award 50 points to referrer if someone signed up using their referral code
+    if (referredBy) {
+      try {
+        const updateResult = await User.findByIdAndUpdate(referredBy, {
+          $inc: { 
+            "points": 50,
+            "referralRewardPoints": 50,
+            "rewards.totalPoints": 50,
+            "rewards.referFriend": 50
+          }
+        }, { new: true });
+        
+        if (updateResult) {
+          console.log('[ReferralSignupPoints] Successfully awarded 50 points to referrer for signup:', referredBy, {
+            newReferralRewardPoints: updateResult.referralRewardPoints,
+            newReferFriendPoints: updateResult.rewards?.referFriend,
+            newPoints: updateResult.points,
+            newUserEmail: email
+          });
+        } else {
+          console.error('[ReferralSignupPoints] User not found for referrer ID:', referredBy);
+        }
+      } catch (referralErr) {
+        console.error('[ReferralSignupPoints] Failed to award referral signup points:', {
+          error: referralErr.message,
+          stack: referralErr.stack,
+          referrerId: referredBy,
+          newUserEmail: email
+        });
+      }
+    }
+
+    
     if (role === "jobseeker") {
       let completed = 0;
-      const totalFields = 24; // Total profile fields
+      const totalFields = 24;
 
-      // Check which fields are filled
       if (newUser.fullName || newUser.name) completed++;
       if (newUser.email) completed++;
       if (newUser.phoneNumber) completed++;
@@ -115,19 +146,16 @@ exports.signup = async (req, res) => {
       if (newUser.socialLinks?.twitterX) completed++;
 
       const percentage = Math.round((completed / totalFields) * 100);
-      const calculatedPoints = 50 + percentage * 2; // Base 50 + 2 points per percentage (100% = 250 points)
+      const calculatedPoints = 50 + percentage * 2;
       
-      // Update rewards.totalPoints and points field
       newUser.rewards.totalPoints = calculatedPoints;
       newUser.points = calculatedPoints;
       newUser.rewards.completeProfile = percentage;
       await newUser.save();
       
-      // Reload user to get updated values
       newUser = await Model.findById(newUser._id);
     }
 
-    // Fire-and-forget welcome email with clear logging for observability
     setImmediate(async () => {
       const recipientEmail = email;
       const recipientName = newUser.name || newUser.fullName || email.split('@')[0];

@@ -264,7 +264,6 @@ exports.createApplication = async (req, res) => {
         $push: { applications: application._id }
       });
 
-      // Update user's applied jobs and award points for applying
       await User.findByIdAndUpdate(applicantId, {
         $push: { 
           "applications.appliedJobs": {
@@ -276,19 +275,15 @@ exports.createApplication = async (req, res) => {
         },
         $inc: { 
           "applications.totalApplications": 1,
-          "applications.activeApplications": 1,
-          "rewards.applyForJobs": 20, // Award 20 points for applying to a job
-          "rewards.totalPoints": 20,  // Add to total points (rewards)
-          "points": 20                // Add to root points field
+          "applications.activeApplications": 1
         }
       });
     }
 
-    // Send HTTP response FIRST
     res.status(201).json({
       message: "Application submitted successfully",
       data: application,
-      pointsAwarded: 20
+      pointsAwarded: 0
     });
 
     // Fire-and-forget emails AFTER response
@@ -567,15 +562,15 @@ exports.updateApplicationStatus = async (req, res) => {
           
           const updateResult = await User.findByIdAndUpdate(referrerId, {
             $inc: { 
-              "points": 50,
-              "referralRewardPoints": 50,
-              "rewards.totalPoints": 50,
-              "rewards.referFriend": 50
+              "points": 20,
+              "referralRewardPoints": 20,
+              "rewards.totalPoints": 20,
+              "rewards.referFriend": 20
             }
           }, { new: true });
           
           if (updateResult) {
-            console.log('[ReferralPoints] Successfully awarded 50 points to referrer:', referrerId, {
+            console.log('[ReferralPoints] Successfully awarded 20 points to referrer:', referrerId, {
               newReferralRewardPoints: updateResult.referralRewardPoints,
               newReferFriendPoints: updateResult.rewards?.referFriend,
               newPoints: updateResult.points,
@@ -1152,7 +1147,6 @@ exports.createReferralApplication = async (req, res) => {
       $push: { applications: application._id }
     });
 
-    // Update User B's applied jobs and award points for applying
     await User.findByIdAndUpdate(userB._id, {
       $push: { 
         "applications.appliedJobs": {
@@ -1164,10 +1158,7 @@ exports.createReferralApplication = async (req, res) => {
       },
       $inc: { 
         "applications.totalApplications": 1,
-        "applications.activeApplications": 1,
-        "rewards.applyForJobs": 20,
-        "rewards.totalPoints": 20,
-        "points": 20
+        "applications.activeApplications": 1
       }
     });
 

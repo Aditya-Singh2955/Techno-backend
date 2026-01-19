@@ -21,6 +21,18 @@ exports.getEmployerProfileDetails = async (req, res) => {
       return res.status(404).json({ message: "Employer not found" });
     }
 
+    if (!employer.referralCode || employer.referralCode === '') {
+      const employerName = employer.name || employer.companyName || employer.email?.split('@')[0] || 'EMPLOYER';
+      const namePart = employerName
+        .replace(/[^a-zA-Z]/g, '')
+        .substring(0, 3)
+        .toUpperCase()
+        .padEnd(3, 'X');
+      const randomNum = Math.floor(Math.random() * 90) + 10;
+      employer.referralCode = `FINDR${namePart}${randomNum}`;
+      await employer.save();
+    }
+
     const publicProfile = employer.getPublicProfile();
 
     res.status(200).json({
@@ -101,6 +113,7 @@ exports.getEmployerProfileDetails = async (req, res) => {
         points: publicProfile.points || 0,
         profileCompleted: publicProfile.profileCompleted || 0,
         membershipTier: publicProfile.membershipTier || "Blue",
+        referralCode: publicProfile.referralCode || employer.referralCode || "",
         
         // Timestamps
         createdAt: publicProfile.createdAt,
