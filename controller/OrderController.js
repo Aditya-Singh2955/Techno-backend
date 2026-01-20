@@ -96,9 +96,11 @@ exports.createOrder = async (req, res) => {
     const calculatedPoints = 50 + percentage * 2;
     const applicationPoints = user.rewards?.applyForJobs || 0;
     const currentRmServicePoints = user.rewards?.rmService || 0;
+    const socialMediaBonus = user.rewards?.socialMediaBonus || 0;
+    const referralRewardPoints = user.referralRewardPoints || 0; // Includes both signup and placement referrals
     
-    // Calculate current total points (before purchase)
-    const currentTotalPoints = calculatedPoints + applicationPoints + currentRmServicePoints;
+    const activityPoints = calculatedPoints + applicationPoints + currentRmServicePoints + socialMediaBonus;
+    const currentTotalPoints = activityPoints + referralRewardPoints;
     const currentDeductedPoints = user.deductedPoints || 0;
     const currentAvailablePoints = Math.max(0, currentTotalPoints - currentDeductedPoints);
     
@@ -123,7 +125,9 @@ exports.createOrder = async (req, res) => {
     // Calculate new values after purchase
     const newDeductedPoints = currentDeductedPoints + pointsUsed;
     const newRmServicePoints = currentRmServicePoints + 100; // Award 100 points for RM service purchase
-    const newTotalPoints = calculatedPoints + applicationPoints + newRmServicePoints;
+    // Recalculate total points including all components
+    const newActivityPoints = calculatedPoints + applicationPoints + newRmServicePoints + socialMediaBonus;
+    const newTotalPoints = newActivityPoints + referralRewardPoints;
     const availablePoints = Math.max(0, newTotalPoints - newDeductedPoints);
     
     const updateResult = await User.findByIdAndUpdate(userId, {
@@ -133,7 +137,8 @@ exports.createOrder = async (req, res) => {
       },
       $inc: {
         "rewards.rmService": 100, // Award 100 points for purchasing RM service
-        "rewards.totalPoints": 100 // Add to total points
+        "rewards.totalPoints": 100, // Add to total points
+        "points": 100 // Update total points field
       },
       $push: {
         orders: order
