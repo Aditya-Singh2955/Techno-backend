@@ -715,6 +715,136 @@ const sendQuoteRequestAdminNotificationEmail = async (adminEmail, employerName, 
   }
 };
 
+// Send job notification email to job seekers
+const sendJobNotificationEmail = async (email, jobSeekerName, jobTitle, companyName, location, jobType, jobId) => {
+  try {
+    const transporter = createTransporter();
+    const jobUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/jobseeker/search`;
+    const jobDetailUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/jobseeker/search?jobId=${jobId}`;
+    
+    const mailOptions = {
+      from: { name: 'Findr Platform', address: process.env.EMAIL_USER },
+      to: email,
+      subject: `New Job Opportunity: ${jobTitle} at ${companyName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>New Job Opportunity</title>
+          <style>
+            body {
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+              background-color: #f4f4f4;
+            }
+            .container {
+              background: white;
+              border-radius: 10px;
+              padding: 30px;
+              box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 30px;
+            }
+            .logo {
+              background: linear-gradient(135deg, #10b981, #3b82f6);
+              color: white;
+              padding: 15px 30px;
+              border-radius: 8px;
+              font-size: 24px;
+              font-weight: bold;
+              display: inline-block;
+              margin-bottom: 20px;
+            }
+            .job-card {
+              background: #f8fafc;
+              border-left: 4px solid #10b981;
+              border-radius: 8px;
+              padding: 20px;
+              margin: 20px 0;
+            }
+            .job-title {
+              font-size: 22px;
+              font-weight: bold;
+              color: #111827;
+              margin-bottom: 10px;
+            }
+            .job-details {
+              color: #6b7280;
+              margin: 8px 0;
+            }
+            .button {
+              display: inline-block;
+              background: linear-gradient(135deg, #10b981, #3b82f6);
+              color: white;
+              padding: 15px 30px;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: bold;
+              text-align: center;
+              margin: 20px 0;
+            }
+            .footer {
+              text-align: center;
+              color: #9ca3af;
+              font-size: 12px;
+              margin-top: 30px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <div class="logo">Findr</div>
+              <h1>New Job Opportunity!</h1>
+            </div>
+            
+            <p>Hello ${jobSeekerName || 'Job Seeker'},</p>
+            
+            <p>We have a new job opportunity that might interest you:</p>
+            
+            <div class="job-card">
+              <div class="job-title">${jobTitle}</div>
+              <div class="job-details"><strong>Company:</strong> ${companyName}</div>
+              ${location ? `<div class="job-details"><strong>Location:</strong> ${location}</div>` : ''}
+              ${jobType ? `<div class="job-details"><strong>Job Type:</strong> ${jobType}</div>` : ''}
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${jobDetailUrl}" class="button">View Job Details</a>
+            </div>
+            
+            <p style="color: #6b7280; font-size: 14px;">
+              Don't miss out on this opportunity! Click the button above to view full job details and apply.
+            </p>
+            
+            <div class="footer">
+              <p>You're receiving this email because you're registered on Findr Platform.</p>
+              <p>Findr Platform - Your Gateway to Career Success in Dubai</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `New Job Opportunity: ${jobTitle} at ${companyName}${location ? ` - ${location}` : ''}. View details at ${jobDetailUrl}`
+    };
+    
+    const result = await transporter.sendMail(mailOptions);
+    console.log('[JobNotificationEmail] Sent to job seeker:', email, 'Job:', jobTitle);
+    return { success: true, messageId: result.messageId };
+  } catch (error) {
+    console.error('[JobNotificationEmail] Error sending email to:', email, error);
+    return { success: false, error: error.message };
+  }
+};
+
 module.exports = {
   sendPasswordResetEmail,
   sendWelcomeEmail,
@@ -724,5 +854,6 @@ module.exports = {
   sendNewApplicationNotificationEmail,
   sendRMServicePurchaseEmail,
   sendQuoteRequestConfirmationEmail,
-  sendQuoteRequestAdminNotificationEmail
+  sendQuoteRequestAdminNotificationEmail,
+  sendJobNotificationEmail
 };

@@ -471,8 +471,9 @@ exports.updateApplicationStatus = async (req, res) => {
     const { status, notes, interviewDate, interviewMode } = req.body;
     const employerId = req.user.id;
 
-    // Verify application belongs to employer
-    const application = await Application.findOne({ _id: applicationId, employerId });
+    // Verify application belongs to employer and populate referredBy for referral points
+    const application = await Application.findOne({ _id: applicationId, employerId })
+      .populate('referredBy', '_id');
     if (!application) {
       return res.status(404).json({ message: "Application not found or access denied" });
     }
@@ -556,40 +557,72 @@ exports.updateApplicationStatus = async (req, res) => {
         console.error('[Points] Failed to award hiring points:', pointsErr);
       }
 
+      // Award placement points (1% of job salary) to referrer if application was a referral and friend gets hired
       if (application.referredBy) {
         try {
-          const referrerId = application.referredBy._id ? application.referredBy._id : application.referredBy;
+          // Fetch job to get salary information
+          const job = await Job.findById(application.jobId).select('salary title companyName');
           
-          const updateResult = await User.findByIdAndUpdate(referrerId, {
-            $inc: { 
-              "points": 20,
-              "referralRewardPoints": 20,
-              "rewards.totalPoints": 20,
-              "rewards.referFriend": 20
+          if (job && job.salary) {
+            // Calculate 1% of total salary (using average of min and max)
+            const salaryMin = job.salary.min || 0;
+            const salaryMax = job.salary.max || 0;
+            const averageSalary = (salaryMin + salaryMax) / 2;
+            const placementPoints = Math.round(averageSalary * 0.01); // 1% of salary as placement points
+            
+            // Handle both populated and unpopulated referredBy field
+            let referrerId;
+            if (application.referredBy._id) {
+              referrerId = application.referredBy._id.toString();
+            } else if (application.referredBy.toString) {
+              referrerId = application.referredBy.toString();
+            } else {
+              referrerId = application.referredBy;
             }
-          }, { new: true });
-          
-          if (updateResult) {
-            console.log('[ReferralPoints] Successfully awarded 20 points to referrer:', referrerId, {
-              newReferralRewardPoints: updateResult.referralRewardPoints,
-              newReferFriendPoints: updateResult.rewards?.referFriend,
-              newPoints: updateResult.points,
-              applicationId: applicationId
-            });
+            
+            // Update referrer with placement points (1% of job salary)
+            const updateResult = await User.findByIdAndUpdate(referrerId, {
+              $inc: { 
+                "points": placementPoints,
+                "referralRewardPoints": placementPoints,
+                "rewards.totalPoints": placementPoints,
+                "rewards.referFriend": placementPoints
+              }
+            }, { new: true });
+            
+            if (updateResult) {
+              console.log('[ReferralPlacementPoints] ✓ Successfully awarded placement points (1% of salary) to referrer:', {
+                referrerId: referrerId,
+                jobTitle: job.title,
+                companyName: job.companyName,
+                salaryMin: salaryMin,
+                salaryMax: salaryMax,
+                averageSalary: averageSalary,
+                placementPoints: placementPoints,
+                newReferralRewardPoints: updateResult.referralRewardPoints,
+                newPoints: updateResult.points,
+                applicationId: applicationId
+              });
+            } else {
+              console.error('[ReferralPlacementPoints] ✗ Referrer not found:', referrerId);
+            }
           } else {
-            console.error('[ReferralPoints] User not found for referrer ID:', referrerId);
+            console.log('[ReferralPlacementPoints] Job salary not found for job:', application.jobId);
           }
-        } catch (referralErr) {
-          console.error('[ReferralPoints] Failed to award referral points:', {
-            error: referralErr.message,
-            stack: referralErr.stack,
-            referrerId: application.referredBy,
+        } catch (placementErr) {
+          console.error('[ReferralPlacementPoints] ✗ Failed to award placement points:', {
+            error: placementErr.message,
+            stack: placementErr.stack,
             applicationId: applicationId
           });
         }
       } else {
-        console.log('[ReferralPoints] No referrer found for application:', applicationId, '- This application was not a referral');
+        console.log('[ReferralPlacementPoints] No referrer found for application:', applicationId, '- This application was not a referral');
       }
+
+      // Note: Referral points (20 points) are now awarded immediately when referral application is created
+      // No need to award points again when status changes to hired
+      console.log('[ReferralPoints] Application marked as hired. Points were already awarded when referral was created.');
     } else if (status === 'hired' && application.status === 'hired') {
       console.log('[ReferralPoints] Application already marked as hired, skipping point award to prevent duplicates:', applicationId);
     }
@@ -1132,10 +1165,48 @@ exports.createReferralApplication = async (req, res) => {
       },
       availability: "Immediate",
       resume: resumeUrl,
-      referredBy: referrerId
+      referredBy: referrerId // Set referrer ID for job placement referral points
     });
 
     await application.save();
+    
+    console.log('[CreateReferralApplication] Application created with referrer:', {
+      applicationId: application._id,
+      referrerId: referrerId,
+      applicantId: userB._id,
+      jobId: jobId
+    });
+
+    // Award 20 points to referrer immediately when referral application is created
+    try {
+      const updateResult = await User.findByIdAndUpdate(referrerId, {
+        $inc: { 
+          "points": 20,
+          "referralRewardPoints": 20,
+          "rewards.totalPoints": 20,
+          "rewards.referFriend": 20
+        }
+      }, { new: true });
+      
+      if (updateResult) {
+        console.log('[ReferralPoints] ✓ Successfully awarded 20 points to referrer immediately:', referrerId, {
+          newReferralRewardPoints: updateResult.referralRewardPoints,
+          newReferFriendPoints: updateResult.rewards?.referFriend,
+          newPoints: updateResult.points,
+          applicationId: application._id,
+          jobId: jobId
+        });
+      } else {
+        console.error('[ReferralPoints] ✗ User not found for referrer ID:', referrerId);
+      }
+    } catch (referralErr) {
+      console.error('[ReferralPoints] ✗ Failed to award referral points immediately:', {
+        error: referralErr.message,
+        stack: referralErr.stack,
+        referrerId: referrerId,
+        applicationId: application._id
+      });
+    }
 
     // Update job applications array
     await Job.findByIdAndUpdate(jobId, {

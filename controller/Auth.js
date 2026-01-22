@@ -685,11 +685,49 @@ exports.updateProfile = async (req, res) => {
     if (updatedUser.socialLinks?.instagram) completed++;
     if (updatedUser.socialLinks?.twitterX) completed++;
 
-    // Calculate percentage and points to match frontend
+    // Helper functions for tier multiplier calculation
+    const getExperienceLevel = (yearsExp) => {
+      if (yearsExp <= 1) return 'Blue';
+      else if (yearsExp >= 2 && yearsExp <= 5) return 'Silver';
+      else return 'Gold'; // 5+ years
+    };
+
+    const getTierMultiplier = (tier, experienceLevel) => {
+      const A = 1.0;
+      if (tier === 'Platinum') {
+        if (experienceLevel === 'Blue') return 2.0;
+        else if (experienceLevel === 'Silver') return 3.0;
+        else return 4.0;
+      } else if (tier === 'Gold') return 2.0 * A;
+      else if (tier === 'Silver') return 1.5 * A;
+      else return 1.0 * A;
+    };
+
+    const determineUserTier = (basePoints, yearsExp, isEmirati) => {
+      if (isEmirati) return "Platinum";
+      else if (basePoints >= 500) return "Platinum";
+      else if (yearsExp >= 5) return "Gold";
+      else if (yearsExp >= 2 && yearsExp <= 5) return "Silver";
+      else return "Blue";
+    };
+
+    // Calculate percentage and base points
     const percentage = Math.round((completed / totalFields) * 100);
-    const calculatedPoints = 50 + (percentage * 2); // Base 50 + 2 points per percentage (100% = 250 points)
-    const applicationPoints = updatedUser?.rewards?.applyForJobs || 0; // Points from job applications
-    const rmServicePoints = updatedUser?.rewards?.rmService || 0; // Points from RM service purchase
+    const basePoints = 50 + (percentage * 2); // Base 50 + 2 points per percentage
+    
+    // Determine tier and experience level
+    const yearsExp = updatedUser?.professionalExperience?.[0]?.yearsOfExperience || 0;
+    const isEmirati = updatedUser?.nationality?.toLowerCase()?.includes("emirati");
+    const experienceLevel = getExperienceLevel(yearsExp);
+    const tier = determineUserTier(basePoints, yearsExp, isEmirati);
+    
+    // Get tier multiplier and apply to base points
+    const multiplier = getTierMultiplier(tier, experienceLevel);
+    const calculatedPoints = basePoints * multiplier;
+    
+    // Add other points without multiplier
+    const applicationPoints = updatedUser?.rewards?.applyForJobs || 0;
+    const rmServicePoints = updatedUser?.rewards?.rmService || 0;
     const socialMediaBonus = updatedUser?.rewards?.socialMediaBonus || 0;
     const referralPoints = updatedUser?.rewards?.referFriend || 0;
     const totalPoints = calculatedPoints + applicationPoints + rmServicePoints + socialMediaBonus + referralPoints;

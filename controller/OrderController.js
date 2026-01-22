@@ -92,12 +92,49 @@ exports.createOrder = async (req, res) => {
     if (user?.socialLinks?.instagram) completed++;
     if (user?.socialLinks?.twitterX) completed++;
 
+    // Helper functions for tier multiplier calculation
+    const getExperienceLevel = (yearsExp) => {
+      if (yearsExp <= 1) return 'Blue';
+      else if (yearsExp >= 2 && yearsExp <= 5) return 'Silver';
+      else return 'Gold';
+    };
+
+    const getTierMultiplier = (tier, experienceLevel) => {
+      const A = 1.0;
+      if (tier === 'Platinum') {
+        if (experienceLevel === 'Blue') return 2.0;
+        else if (experienceLevel === 'Silver') return 3.0;
+        else return 4.0;
+      } else if (tier === 'Gold') return 2.0 * A;
+      else if (tier === 'Silver') return 1.5 * A;
+      else return 1.0 * A;
+    };
+
+    const determineUserTier = (basePoints, yearsExp, isEmirati) => {
+      if (isEmirati) return "Platinum";
+      else if (basePoints >= 500) return "Platinum";
+      else if (yearsExp >= 5) return "Gold";
+      else if (yearsExp >= 2 && yearsExp <= 5) return "Silver";
+      else return "Blue";
+    };
+
     const percentage = Math.round((completed / totalFields) * 100);
-    const calculatedPoints = 50 + percentage * 2;
+    const basePoints = 50 + percentage * 2;
+    
+    // Determine tier and experience level (exp already declared above)
+    const yearsExp = exp?.yearsOfExperience || 0;
+    const isEmirati = user?.nationality?.toLowerCase()?.includes("emirati");
+    const experienceLevel = getExperienceLevel(yearsExp);
+    const tier = determineUserTier(basePoints, yearsExp, isEmirati);
+    
+    // Get tier multiplier and apply to base points
+    const multiplier = getTierMultiplier(tier, experienceLevel);
+    const calculatedPoints = basePoints * multiplier;
+    
     const applicationPoints = user.rewards?.applyForJobs || 0;
     const currentRmServicePoints = user.rewards?.rmService || 0;
     const socialMediaBonus = user.rewards?.socialMediaBonus || 0;
-    const referralRewardPoints = user.referralRewardPoints || 0; // Includes both signup and placement referrals
+    const referralRewardPoints = user.referralRewardPoints || 0;
     
     const activityPoints = calculatedPoints + applicationPoints + currentRmServicePoints + socialMediaBonus;
     const currentTotalPoints = activityPoints + referralRewardPoints;
@@ -125,7 +162,7 @@ exports.createOrder = async (req, res) => {
     // Calculate new values after purchase
     const newDeductedPoints = currentDeductedPoints + pointsUsed;
     const newRmServicePoints = currentRmServicePoints + 100; // Award 100 points for RM service purchase
-    // Recalculate total points including all components
+    // Recalculate total points including all components (base points already multiplied)
     const newActivityPoints = calculatedPoints + applicationPoints + newRmServicePoints + socialMediaBonus;
     const newTotalPoints = newActivityPoints + referralRewardPoints;
     const availablePoints = Math.max(0, newTotalPoints - newDeductedPoints);
