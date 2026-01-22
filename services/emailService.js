@@ -10,9 +10,6 @@ const createTransporter = () => {
       user: process.env.EMAIL_USER, // Your Outlook email
       pass: process.env.EMAIL_PASS  // Your Outlook app password (if 2FA is enabled)
     },
-    tls: {
-      ciphers: 'SSLv3'
-    }
   });
 };
 
