@@ -3,12 +3,13 @@ const nodemailer = require('nodemailer');
 // Create transporter
 const createTransporter = () => {
   return nodemailer.createTransport({
-    host: 'smtp.office365.com',
-    port: 587, // Outlook uses 587 for TLS
-    secure: false, // use TLS
+    host: "smtpout.secureserver.net",
+    port: 587, 
+    secure: false, 
+    requireTLS: true,
     auth: {
-      user: process.env.EMAIL_USER, // Your Outlook email
-      pass: process.env.EMAIL_PASS  // Your Outlook app password (if 2FA is enabled)
+      user: process.env.EMAIL_USER, 
+      pass: process.env.EMAIL_PASS  
     },
   });
 };
