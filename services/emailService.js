@@ -1,18 +1,28 @@
 const nodemailer = require('nodemailer');
 
 // Create transporter
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: "smtpout.secureserver.net",
-    port: 465, 
-    secure: true, 
-    // requireTLS: true,
-    auth: {
-      user: process.env.EMAIL_USER, 
-      pass: process.env.EMAIL_PASS  
-    },
-  });
-};
+// const createTransporter = () => {
+//   return nodemailer.createTransport({
+//     host: "smtpout.secureserver.net",
+//     port: 465, 
+//     secure: true, 
+//     // requireTLS: true,
+//     auth: {
+//       user: process.env.EMAIL_USER, 
+//       pass: process.env.EMAIL_PASS  
+//     },
+//   });
+// };
+createTransporter = () => nodemailer.createTransport({
+  host: "smtpout.secureserver.net",
+  port: 587,
+  secure: false,
+  requireTLS: true,
+  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+  tls: { rejectUnauthorized: false }, // testing only
+  logger: true, debug: true
+});
+
 
 // Send password reset email
 const sendPasswordResetEmail = async (email, resetToken, userName = 'User') => {
