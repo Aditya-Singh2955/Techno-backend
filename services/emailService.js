@@ -4,9 +4,9 @@ const nodemailer = require('nodemailer');
 const createTransporter = () => {
   return nodemailer.createTransport({
     host: "smtpout.secureserver.net",
-    port: 587, 
-    secure: false, 
-    requireTLS: true,
+    port: 465, 
+    secure: true, 
+    // requireTLS: true,
     auth: {
       user: process.env.EMAIL_USER, 
       pass: process.env.EMAIL_PASS  
