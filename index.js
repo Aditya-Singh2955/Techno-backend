@@ -6,6 +6,17 @@ const Stripe = require('stripe');
 require("dotenv").config();
 const PORT = process.env.PORT || 4000;
 
+// Log startup information
+console.log('\n========================================');
+console.log('🚀 Server Starting...');
+console.log('========================================');
+console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`🌐 Port: ${PORT}`);
+console.log(`📧 Email Config Check:`);
+console.log(`   - EMAIL_USER: ${process.env.EMAIL_USER ? process.env.EMAIL_USER.substring(0, 5) + '...' : '❌ NOT SET'}`);
+console.log(`   - EMAIL_PASS: ${process.env.EMAIL_PASS ? '✅ SET (' + process.env.EMAIL_PASS.length + ' chars)' : '❌ NOT SET'}`);
+console.log(`   - FRONTEND_URL: ${process.env.FRONTEND_URL || '❌ NOT SET'}`);
+console.log('========================================\n');
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -17,6 +28,20 @@ app.use(cors({
 
 app.use('/api/v1/stripe/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
+
+// Request logging middleware (for debugging)
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  console.log(`\n📥 [${timestamp}] ${req.method} ${req.path}`);
+  if (req.body && Object.keys(req.body).length > 0) {
+    // Log request body (hide sensitive data)
+    const sanitizedBody = { ...req.body };
+    if (sanitizedBody.password) sanitizedBody.password = '***HIDDEN***';
+    if (sanitizedBody.token) sanitizedBody.token = sanitizedBody.token.substring(0, 10) + '...';
+    console.log(`📥 Body:`, JSON.stringify(sanitizedBody, null, 2));
+  }
+  next();
+});
 
 require("./config/database").connect();
 
@@ -287,5 +312,29 @@ app.post('/create-checkout-session', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`App is Listening at ${PORT}`);
+  console.log('\n✅ ========================================');
+  console.log(`✅ Server is running on port ${PORT}`);
+  console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`✅ API Base URL: http://localhost:${PORT}/api/v1`);
+  console.log('✅ ========================================\n');
+  
+  // Test email configuration on startup (non-blocking)
+  setImmediate(async () => {
+    try {
+      const { verifyTransporter, createTransporter } = require('./services/emails/sendPasswordResetEmail');
+      const transporter = createTransporter();
+      const verified = await verifyTransporter(transporter);
+      if (verified) {
+        console.log('✅ Email configuration verified successfully!\n');
+      } else {
+        console.log('⚠️  Email configuration verification failed. Check logs above.\n');
+      }
+      if (transporter && transporter.close) {
+        transporter.close();
+      }
+    } catch (error) {
+      console.error('❌ Email configuration error on startup:', error.message);
+      console.error('   Make sure EMAIL_USER and EMAIL_PASS are set in .env file\n');
+    }
+  });
 });

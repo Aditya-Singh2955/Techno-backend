@@ -3,7 +3,22 @@ const nodemailer = require("nodemailer");
 // Get email credentials and handle spaces (common issue in production)
 const getEmailConfig = () => {
   const emailUser = process.env.EMAIL_USER?.trim();
-  const emailPass = process.env.EMAIL_PASS?.trim().replace(/\s+/g, ''); // Remove all spaces from password
+  const rawPass = process.env.EMAIL_PASS?.trim() || '';
+  const emailPass = rawPass.replace(/\s+/g, ''); // Remove all spaces from password
+  
+  // Debug logging (don't log full password for security)
+  console.log('[Email Config] Credential Check:', {
+    hasUser: !!emailUser,
+    hasPass: !!emailPass,
+    userLength: emailUser?.length || 0,
+    passLength: emailPass?.length || 0,
+    rawPassLength: rawPass.length,
+    userPreview: emailUser ? emailUser.substring(0, 5) + '...' : 'N/A',
+    passFirst4: emailPass ? emailPass.substring(0, 4) : 'N/A',
+    passLast4: emailPass && emailPass.length >= 4 ? emailPass.substring(emailPass.length - 4) : 'N/A',
+    hasSpacesInRaw: rawPass.includes(' '),
+    nodeEnv: process.env.NODE_ENV
+  });
   
   if (!emailUser || !emailPass) {
     console.error('[Email Config] Missing email credentials:', {
@@ -12,6 +27,12 @@ const getEmailConfig = () => {
       nodeEnv: process.env.NODE_ENV
     });
     throw new Error('Email configuration is missing. Please check EMAIL_USER and EMAIL_PASS environment variables.');
+  }
+
+  if (emailPass.length !== 16) {
+    console.warn(`[Email Config] ⚠️  Warning: App Password should be 16 characters, but got ${emailPass.length} characters`);
+    console.warn(`[Email Config] First 4: ${emailPass.substring(0, 4)}, Last 4: ${emailPass.substring(emailPass.length - 4)}`);
+    console.warn(`[Email Config] ⚠️  This might cause authentication issues. Please verify your App Password.`);
   }
 
   return {
@@ -37,6 +58,18 @@ const createTransporter = () => {
       maxMessages: 3,
       rateDelta: 1000,
       rateLimit: 5,
+      // Connection timeout settings for Render/production
+      connectionTimeout: 60000, // 60 seconds
+      greetingTimeout: 30000, // 30 seconds
+      socketTimeout: 60000, // 60 seconds
+      // Use explicit SMTP settings for better reliability
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: false, // true for 465, false for other ports
+      requireTLS: true,
+      tls: {
+        rejectUnauthorized: false // Allow self-signed certificates if needed
+      }
     });
 
     return transporter;
@@ -234,20 +267,24 @@ const sendPasswordResetEmail = async (email, resetToken, userName = 'User') => {
       `
     };
 
-    console.log('[Email] Attempting to send password reset email:', {
-      to: email,
-      from: config.user,
-      resetUrl: resetUrl.substring(0, 50) + '...',
-      nodeEnv: process.env.NODE_ENV
-    });
+    console.log('\n📤 ========================================');
+    console.log('📤 ATTEMPTING TO SEND PASSWORD RESET EMAIL');
+    console.log('📤 ========================================');
+    console.log(`📤 To: ${email}`);
+    console.log(`📤 From: ${config.user}`);
+    console.log(`📤 Reset URL: ${resetUrl.substring(0, 60)}...`);
+    console.log(`📤 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log('📤 ========================================\n');
 
     const result = await transporter.sendMail(mailOptions);
     
-    console.log('[Email] ✓ Password reset email sent successfully:', {
-      messageId: result.messageId,
-      response: result.response,
-      to: email
-    });
+    console.log('\n✅ ========================================');
+    console.log('✅ PASSWORD RESET EMAIL SENT SUCCESSFULLY!');
+    console.log('✅ ========================================');
+    console.log(`✅ Message ID: ${result.messageId}`);
+    console.log(`✅ Response: ${result.response || 'N/A'}`);
+    console.log(`✅ To: ${email}`);
+    console.log('✅ ========================================\n');
     
     return { success: true, messageId: result.messageId };
     
@@ -268,7 +305,33 @@ const sendPasswordResetEmail = async (email, resetToken, userName = 'User') => {
       emailPassLength: process.env.EMAIL_PASS?.length || 0
     };
 
-    console.error('[Email] ✗ Error sending password reset email:', JSON.stringify(errorDetails, null, 2));
+    console.error('\n❌ ========================================');
+    console.error('❌ ERROR SENDING PASSWORD RESET EMAIL');
+    console.error('❌ ========================================');
+    console.error(`❌ Error: ${error.message}`);
+    console.error(`❌ Code: ${error.code || 'N/A'}`);
+    console.error(`❌ Response: ${error.response || 'N/A'}`);
+    console.error(`❌ To: ${email}`);
+    console.error(`❌ Has EMAIL_USER: ${!!process.env.EMAIL_USER}`);
+    console.error(`❌ Has EMAIL_PASS: ${!!process.env.EMAIL_PASS}`);
+    console.error(`❌ Password Length: ${process.env.EMAIL_PASS?.length || 0}`);
+    
+    // Special handling for connection timeout errors
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+      console.error('\n⚠️  CONNECTION TIMEOUT DETECTED - Possible Issues:');
+      console.error('⚠️  1. Render firewall may be blocking SMTP connections');
+      console.error('⚠️  2. Gmail SMTP server may be unreachable from Render');
+      console.error('⚠️  3. Network configuration issue');
+      console.error('⚠️  Solutions:');
+      console.error('⚠️  - Check Render network settings');
+      console.error('⚠️  - Try using port 465 with secure: true');
+      console.error('⚠️  - Consider using a different email service (SendGrid, Mailgun, etc.)');
+      console.error('⚠️  - Or use Gmail OAuth2 instead of App Password');
+    }
+    
+    console.error('❌ Full Error Details:');
+    console.error(JSON.stringify(errorDetails, null, 2));
+    console.error('❌ ========================================\n');
     
     // Return more detailed error information for debugging
     return { 

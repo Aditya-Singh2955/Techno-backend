@@ -889,9 +889,17 @@ exports.checkProfileEligibility = async (req, res) => {
 // Forgot Password - Send reset email
 exports.forgotPassword = async (req, res) => {
   try {
+    console.log('\n📧 ========================================');
+    console.log('📧 FORGOT PASSWORD REQUEST RECEIVED');
+    console.log('📧 ========================================');
+    console.log(`📧 Time: ${new Date().toISOString()}`);
+    console.log(`📧 IP: ${req.ip || req.connection.remoteAddress}`);
+    
     const { email } = req.body;
+    console.log(`📧 Email: ${email || 'NOT PROVIDED'}`);
 
     if (!email) {
+      console.log('❌ Email is missing in request body');
       return res.status(400).json({
         success: false,
         message: "Email is required"
@@ -899,20 +907,25 @@ exports.forgotPassword = async (req, res) => {
     }
 
     // Find user in both collections
+    console.log(`🔍 [ForgotPassword] Searching for user with email: ${email}`);
     let user = await User.findOne({ email });
     let userRole = 'jobseeker';
     
     if (!user) {
+      console.log(`🔍 [ForgotPassword] Not found in User collection, checking Employer collection...`);
       user = await Employer.findOne({ email });
       userRole = 'employer';
     }
 
     if (!user) {
+      console.log(`❌ [ForgotPassword] No user found with email: ${email}`);
       return res.status(404).json({
         success: false,
         message: "No account found with this email address"
       });
     }
+
+    console.log(`✅ [ForgotPassword] User found: ${userRole} with ID: ${user._id}`);
 
     // Generate reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
@@ -924,13 +937,11 @@ exports.forgotPassword = async (req, res) => {
     await user.save();
 
     // Send password reset email
-    console.log('[ForgotPassword] Attempting to send password reset email:', {
-      email,
-      userRole,
-      userId: user._id,
-      nodeEnv: process.env.NODE_ENV,
-      frontendUrl: process.env.FRONTEND_URL
-    });
+    console.log('\n📨 [ForgotPassword] User found, preparing to send email:');
+    console.log(`📨   - User ID: ${user._id}`);
+    console.log(`📨   - User Role: ${userRole}`);
+    console.log(`📨   - User Name: ${user.name || user.fullName || 'N/A'}`);
+    console.log(`📨   - Reset Token Generated: ${resetToken.substring(0, 20)}...`);
 
     const emailResult = await sendPasswordResetEmail(
       email, 
@@ -940,15 +951,16 @@ exports.forgotPassword = async (req, res) => {
 
     if (!emailResult.success) {
       // Log detailed error information for debugging
-      console.error('[ForgotPassword] ✗ Failed to send password reset email:', {
-        error: emailResult.error,
-        errorCode: emailResult.errorCode,
-        errorResponse: emailResult.errorResponse,
-        errorDetails: emailResult.errorDetails,
-        email,
-        userRole,
-        userId: user._id
-      });
+      console.error('\n❌ [ForgotPassword] ✗ Failed to send password reset email:');
+      console.error(`❌   - Error: ${emailResult.error}`);
+      console.error(`❌   - Error Code: ${emailResult.errorCode || 'N/A'}`);
+      console.error(`❌   - Error Response: ${emailResult.errorResponse || 'N/A'}`);
+      console.error(`❌   - Email: ${email}`);
+      console.error(`❌   - User Role: ${userRole}`);
+      console.error(`❌   - User ID: ${user._id}`);
+      if (emailResult.errorDetails) {
+        console.error('❌   - Full Error Details:', JSON.stringify(emailResult.errorDetails, null, 2));
+      }
 
       // In production, still return success to user for security (don't reveal if email exists)
       // But log the error for admin debugging
@@ -975,12 +987,11 @@ exports.forgotPassword = async (req, res) => {
       });
     }
 
-    console.log('[ForgotPassword] ✓ Password reset email sent successfully:', {
-      email,
-      messageId: emailResult.messageId,
-      userRole,
-      userId: user._id
-    });
+    console.log('\n✅ [ForgotPassword] ✓ Password reset email sent successfully:');
+    console.log(`✅   - Email: ${email}`);
+    console.log(`✅   - Message ID: ${emailResult.messageId}`);
+    console.log(`✅   - User Role: ${userRole}`);
+    console.log(`✅   - User ID: ${user._id}\n`);
 
     res.status(200).json({
       success: true,
@@ -992,7 +1003,9 @@ exports.forgotPassword = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Forgot password error:", error);
+    console.error('\n❌ [ForgotPassword] Unexpected error:', error);
+    console.error(`❌   - Error Message: ${error.message}`);
+    console.error(`❌   - Stack: ${error.stack}\n`);
     res.status(500).json({
       success: false,
       message: "Failed to process password reset request",
