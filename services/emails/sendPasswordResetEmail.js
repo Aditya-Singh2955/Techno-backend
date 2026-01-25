@@ -1,21 +1,95 @@
 const nodemailer = require("nodemailer");
 
-const transporter = nodemailer.createTransport({
-  service: "Gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+// Get email credentials and handle spaces (common issue in production)
+const getEmailConfig = () => {
+  const emailUser = process.env.EMAIL_USER?.trim();
+  const emailPass = process.env.EMAIL_PASS?.trim().replace(/\s+/g, ''); // Remove all spaces from password
+  
+  if (!emailUser || !emailPass) {
+    console.error('[Email Config] Missing email credentials:', {
+      hasUser: !!emailUser,
+      hasPass: !!emailPass,
+      nodeEnv: process.env.NODE_ENV
+    });
+    throw new Error('Email configuration is missing. Please check EMAIL_USER and EMAIL_PASS environment variables.');
+  }
+
+  return {
+    user: emailUser,
+    pass: emailPass
+  };
+};
+
+// Create transporter with better error handling
+const createTransporter = () => {
+  try {
+    const config = getEmailConfig();
+    
+    const transporter = nodemailer.createTransport({
+      service: "Gmail",
+      auth: {
+        user: config.user,
+        pass: config.pass,
+      },
+      // Add timeout and connection pool settings for production
+      pool: true,
+      maxConnections: 1,
+      maxMessages: 3,
+      rateDelta: 1000,
+      rateLimit: 5,
+    });
+
+    return transporter;
+  } catch (error) {
+    console.error('[Email Config] Failed to create transporter:', error.message);
+    throw error;
+  }
+};
+
+// Verify transporter connection (call this once on startup or before sending)
+const verifyTransporter = async (transporter) => {
+  try {
+    const config = getEmailConfig();
+    await transporter.verify();
+    console.log('[Email Config] ✓ Email transporter verified successfully');
+    return true;
+  } catch (error) {
+    console.error('[Email Config] ✗ Email transporter verification failed:', {
+      error: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      responseCode: error.responseCode
+    });
+    return false;
+  }
+};
 
 const sendPasswordResetEmail = async (email, resetToken, userName = 'User') => {
+  let transporter;
+  
   try {
+    // Validate email input
+    if (!email || !resetToken) {
+      throw new Error('Email and reset token are required');
+    }
+
+    // Create transporter
+    transporter = createTransporter();
+    
+    // Verify connection before sending (optional but helpful for debugging)
+    const isVerified = await verifyTransporter(transporter);
+    if (!isVerified) {
+      console.warn('[Email] Transporter verification failed, but attempting to send anyway...');
+    }
+
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}`;
+    const config = getEmailConfig();
     
     const mailOptions = {
       from: {
         name: 'Findr Platform',
-        address: process.env.EMAIL_USER
+        address: config.user
       },
       to: email,
       subject: 'Password Reset Request - Findr Platform',
@@ -160,14 +234,60 @@ const sendPasswordResetEmail = async (email, resetToken, userName = 'User') => {
       `
     };
 
+    console.log('[Email] Attempting to send password reset email:', {
+      to: email,
+      from: config.user,
+      resetUrl: resetUrl.substring(0, 50) + '...',
+      nodeEnv: process.env.NODE_ENV
+    });
+
     const result = await transporter.sendMail(mailOptions);
-    console.log('Password reset email sent successfully:', result.messageId);
+    
+    console.log('[Email] ✓ Password reset email sent successfully:', {
+      messageId: result.messageId,
+      response: result.response,
+      to: email
+    });
+    
     return { success: true, messageId: result.messageId };
     
   } catch (error) {
-    console.error('Error sending password reset email:', error);
-    return { success: false, error: error.message };
+    // Detailed error logging for production debugging
+    const errorDetails = {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      responseCode: error.responseCode,
+      stack: error.stack,
+      to: email,
+      nodeEnv: process.env.NODE_ENV,
+      hasEmailUser: !!process.env.EMAIL_USER,
+      hasEmailPass: !!process.env.EMAIL_PASS,
+      emailUserLength: process.env.EMAIL_USER?.length || 0,
+      emailPassLength: process.env.EMAIL_PASS?.length || 0
+    };
+
+    console.error('[Email] ✗ Error sending password reset email:', JSON.stringify(errorDetails, null, 2));
+    
+    // Return more detailed error information for debugging
+    return { 
+      success: false, 
+      error: error.message,
+      errorCode: error.code,
+      errorResponse: error.response,
+      errorDetails: process.env.NODE_ENV === 'development' ? errorDetails : undefined
+    };
+  } finally {
+    // Close transporter connection if it was created
+    if (transporter && transporter.close) {
+      transporter.close();
+    }
   }
 };
 
+// Export both the function and helper functions for testing
 module.exports = sendPasswordResetEmail;
+module.exports.verifyTransporter = verifyTransporter;
+module.exports.createTransporter = createTransporter;
+module.exports.getEmailConfig = getEmailConfig;

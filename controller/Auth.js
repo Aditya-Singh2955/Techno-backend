@@ -924,6 +924,14 @@ exports.forgotPassword = async (req, res) => {
     await user.save();
 
     // Send password reset email
+    console.log('[ForgotPassword] Attempting to send password reset email:', {
+      email,
+      userRole,
+      userId: user._id,
+      nodeEnv: process.env.NODE_ENV,
+      frontendUrl: process.env.FRONTEND_URL
+    });
+
     const emailResult = await sendPasswordResetEmail(
       email, 
       resetToken, 
@@ -931,17 +939,48 @@ exports.forgotPassword = async (req, res) => {
     );
 
     if (!emailResult.success) {
-      console.error('Failed to send password reset email:', emailResult.error);
+      // Log detailed error information for debugging
+      console.error('[ForgotPassword] ✗ Failed to send password reset email:', {
+        error: emailResult.error,
+        errorCode: emailResult.errorCode,
+        errorResponse: emailResult.errorResponse,
+        errorDetails: emailResult.errorDetails,
+        email,
+        userRole,
+        userId: user._id
+      });
+
+      // In production, still return success to user for security (don't reveal if email exists)
+      // But log the error for admin debugging
+      if (process.env.NODE_ENV === 'production') {
+        // Log to error tracking service if available
+        console.error('[ForgotPassword] PRODUCTION EMAIL FAILURE - Check email configuration:', {
+          hasEmailUser: !!process.env.EMAIL_USER,
+          hasEmailPass: !!process.env.EMAIL_PASS,
+          emailUser: process.env.EMAIL_USER?.substring(0, 5) + '...',
+          errorCode: emailResult.errorCode
+        });
+      }
+
       // Still return success to user for security (don't reveal if email exists)
       return res.status(200).json({
         success: true,
         message: "Password reset link sent to your email",
-        // In development, also return the URL for testing
+        // In development, also return the URL and error for testing
         resetUrl: process.env.NODE_ENV === 'development' ? 
           `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}` : 
-          undefined
+          undefined,
+        // Only show error details in development
+        error: process.env.NODE_ENV === 'development' ? emailResult.error : undefined
       });
     }
+
+    console.log('[ForgotPassword] ✓ Password reset email sent successfully:', {
+      email,
+      messageId: emailResult.messageId,
+      userRole,
+      userId: user._id
+    });
 
     res.status(200).json({
       success: true,
@@ -1171,6 +1210,103 @@ exports.resetPassword = async (req, res) => {
       success: false,
       message: "Failed to reset password",
       error: error.message
+    });
+  }
+};
+
+// Test Email Configuration Endpoint (for debugging in production)
+exports.testEmailConfig = async (req, res) => {
+  try {
+    const { sendPasswordResetEmail } = require("../services/emailService");
+    const { verifyTransporter, createTransporter, getEmailConfig } = require("../services/emails/sendPasswordResetEmail");
+    
+    // Check if email credentials are configured
+    let configStatus = {
+      hasEmailUser: !!process.env.EMAIL_USER,
+      hasEmailPass: !!process.env.EMAIL_PASS,
+      emailUser: process.env.EMAIL_USER ? process.env.EMAIL_USER.substring(0, 5) + '...' : 'NOT SET',
+      emailPassLength: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.length : 0,
+      nodeEnv: process.env.NODE_ENV,
+      frontendUrl: process.env.FRONTEND_URL
+    };
+
+    // Try to get email config (will throw if missing)
+    let emailConfig;
+    try {
+      emailConfig = getEmailConfig();
+      configStatus.configValid = true;
+    } catch (error) {
+      configStatus.configValid = false;
+      configStatus.configError = error.message;
+    }
+
+    // Try to verify transporter
+    let verificationResult = {
+      verified: false,
+      error: null
+    };
+
+    if (configStatus.configValid) {
+      try {
+        const transporter = createTransporter();
+        const verified = await verifyTransporter(transporter);
+        verificationResult.verified = verified;
+        if (transporter && transporter.close) {
+          transporter.close();
+        }
+      } catch (error) {
+        verificationResult.error = error.message;
+        verificationResult.errorCode = error.code;
+        verificationResult.errorResponse = error.response;
+      }
+    }
+
+    // If test email is requested
+    const { testEmail } = req.query;
+    let testEmailResult = null;
+
+    if (testEmail) {
+      try {
+        const testToken = crypto.randomBytes(32).toString('hex');
+        const result = await sendPasswordResetEmail(
+          testEmail,
+          testToken,
+          'Test User'
+        );
+        testEmailResult = {
+          success: result.success,
+          messageId: result.messageId,
+          error: result.error,
+          errorCode: result.errorCode
+        };
+      } catch (error) {
+        testEmailResult = {
+          success: false,
+          error: error.message,
+          errorCode: error.code
+        };
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Email configuration test completed",
+      config: configStatus,
+      verification: verificationResult,
+      testEmail: testEmailResult,
+      instructions: {
+        verifyOnly: "Use GET /api/v1/auth/test-email-config to check configuration",
+        sendTestEmail: "Use GET /api/v1/auth/test-email-config?testEmail=your@email.com to send a test email"
+      }
+    });
+
+  } catch (error) {
+    console.error('[TestEmailConfig] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to test email configuration",
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
