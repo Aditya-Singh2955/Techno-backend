@@ -9,12 +9,9 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-
-
 // Send password reset email
 const sendPasswordResetEmail = async (email, resetToken, userName = 'User') => {
   try {
-    const transporter = createTransporter();
     
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}`;
     
@@ -179,7 +176,6 @@ const sendPasswordResetEmail = async (email, resetToken, userName = 'User') => {
 // Send welcome email
 const sendWelcomeEmail = async (email, userName, userRole) => {
   try {
-    const transporter = createTransporter();
     
     const mailOptions = {
       from: {
@@ -311,7 +307,6 @@ const sendWelcomeEmail = async (email, userName, userRole) => {
 // Send application confirmation email
 const sendApplicationConfirmationEmail = async (email, applicantName, jobTitle, companyName, applicationDate) => {
   try {
-    const transporter = createTransporter();
     
     const formattedDate = new Date(applicationDate).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -396,7 +391,6 @@ const sendApplicationConfirmationEmail = async (email, applicantName, jobTitle, 
 // NEW: Send application status update email
 const sendApplicationStatusUpdateEmail = async (email, applicantName, jobTitle, companyName, newStatus, interviewInfo) => {
   try {
-    const transporter = createTransporter();
 
     const statusMap = {
       pending: { label: 'Pending Review', color: '#f59e0b' },
@@ -475,7 +469,6 @@ const sendApplicationStatusUpdateEmail = async (email, applicantName, jobTitle, 
 // NEW: Send employer job posted confirmation email
 const sendJobPostedEmail = async (email, employerName, jobTitle, companyName, jobId) => {
   try {
-    const transporter = createTransporter();
     const jobUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/employer/active-jobs`;
     const mailOptions = {
       from: { name: 'Findr Platform', address: process.env.EMAIL_USER },
@@ -513,7 +506,6 @@ const sendJobPostedEmail = async (email, employerName, jobTitle, companyName, jo
 // NEW: Send employer notification when a new application is received
 const sendNewApplicationNotificationEmail = async (email, employerName, jobTitle, applicantName, applicationDate) => {
   try {
-    const transporter = createTransporter();
     const formattedDate = new Date(applicationDate).toLocaleString();
     const inboxUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/employer/applicants`;
     const mailOptions = {
@@ -553,7 +545,6 @@ const sendNewApplicationNotificationEmail = async (email, employerName, jobTitle
 // Send RM Service purchase confirmation email
 const sendRMServicePurchaseEmail = async (email, userName, orderDetails) => {
   try {
-    const transporter = createTransporter();
     
     const formattedDate = new Date(orderDetails.orderDate || new Date()).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -642,7 +633,6 @@ const sendRMServicePurchaseEmail = async (email, userName, orderDetails) => {
 // Send Quote Request confirmation to employer
 const sendQuoteRequestConfirmationEmail = async (toEmail, employerName, service, requirements, budget, timeline) => {
   try {
-    const transporter = createTransporter();
     const mailOptions = {
       from: { name: 'Findr Platform', address: process.env.EMAIL_USER },
       to: toEmail,
@@ -682,7 +672,6 @@ const sendQuoteRequestConfirmationEmail = async (toEmail, employerName, service,
 const sendQuoteRequestAdminNotificationEmail = async (adminEmail, employerName, service, requirements) => {
   try {
     if (!adminEmail) return { success: false, error: 'No admin email configured' };
-    const transporter = createTransporter();
     const mailOptions = {
       from: { name: 'Findr Platform', address: process.env.EMAIL_USER },
       to: adminEmail,
@@ -713,7 +702,6 @@ const sendQuoteRequestAdminNotificationEmail = async (adminEmail, employerName, 
 // Send job notification email to job seekers
 const sendJobNotificationEmail = async (email, jobSeekerName, jobTitle, companyName, location, jobType, jobId) => {
   try {
-    const transporter = createTransporter();
     const jobUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/jobseeker/search`;
     const jobDetailUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/jobseeker/search?jobId=${jobId}`;
     
