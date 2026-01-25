@@ -2,22 +2,16 @@ const nodemailer = require('nodemailer');
 
 // Create transporter
 const createTransporter = () => {
-  const transporter = nodemailer.createTransport({
-    host: "smtp.office365.com",
-    port: 587,
-    secure: false,
+  return nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587, 
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS, // APP PASSWORD ONLY
-    },
-    tls: {
-      ciphers: "TLSv1.2",
-      rejectUnauthorized: false,
+      user: process.env.EMAIL_USER, 
+      pass: process.env.EMAIL_PASS  
     },
   });
-
-  return transporter;
 };
+
 
 
 // Send password reset email
