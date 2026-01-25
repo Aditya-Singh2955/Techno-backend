@@ -1,37 +1,100 @@
 const nodemailer = require('nodemailer');
 
-// Create transporter
-// const createTransporter = () => {
-//   return nodemailer.createTransport({
-//     host: "smtpout.secureserver.net",
-//     port: 465, 
-//     secure: true, 
-//     // requireTLS: true,
-//     auth: {
-//       user: process.env.EMAIL_USER, 
-//       pass: process.env.EMAIL_PASS  
-//     },
-//   });
-// };
-createTransporter = () => nodemailer.createTransport({
-  host: "smtpout.secureserver.net",
-  port: 465,
-  secure: false,
-  requireTLS: true,
-  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  tls: { rejectUnauthorized: false }, // testing only
-  logger: true, debug: true
-});
+// Create transporter with multiple fallback configurations
+// Configuration 1: SSL on port 465 (recommended for GoDaddy)
+// Configuration 2: TLS on port 587 (alternative)
+// Configuration 3: Port 25 with STARTTLS (fallback)
+const createTransporter = (configIndex = 0) => {
+  const configs = [
+    // Config 1: SSL on port 465 (Primary - GoDaddy recommended)
+    {
+      host: "smtpout.secureserver.net",
+      port: 465,
+      secure: true,
+      auth: { 
+        user: process.env.EMAIL_USER, 
+        pass: process.env.EMAIL_PASS 
+      },
+      tls: { 
+        rejectUnauthorized: false 
+      },
+      connectionTimeout: 60000,
+      greetingTimeout: 30000,
+      socketTimeout: 60000,
+      logger: true, 
+      debug: true
+    },
+    // Config 2: TLS on port 587 (Alternative)
+    {
+      host: "smtpout.secureserver.net",
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      auth: { 
+        user: process.env.EMAIL_USER, 
+        pass: process.env.EMAIL_PASS 
+      },
+      tls: { 
+        rejectUnauthorized: false 
+      },
+      connectionTimeout: 60000,
+      greetingTimeout: 30000,
+      socketTimeout: 60000,
+      logger: true, 
+      debug: true
+    },
+    // Config 3: Port 25 with STARTTLS (Fallback)
+    {
+      host: "smtpout.secureserver.net",
+      port: 25,
+      secure: false,
+      requireTLS: true,
+      auth: { 
+        user: process.env.EMAIL_USER, 
+        pass: process.env.EMAIL_PASS 
+      },
+      tls: { 
+        rejectUnauthorized: false 
+      },
+      connectionTimeout: 60000,
+      greetingTimeout: 30000,
+      socketTimeout: 60000,
+      logger: true, 
+      debug: true
+    }
+  ];
+
+  const config = configs[configIndex] || configs[0];
+  console.log(`[EmailService] Using SMTP config ${configIndex + 1}: ${config.host}:${config.port} (secure: ${config.secure})`);
+  
+  return nodemailer.createTransporter(config);
+};
+
+// Test email connection
+const testEmailConnection = async () => {
+  console.log('[EmailService] Testing email connection...');
+  
+  for (let configIndex = 0; configIndex < 3; configIndex++) {
+    try {
+      const transporter = createTransporter(configIndex);
+      await transporter.verify();
+      console.log(`[EmailService] Config ${configIndex + 1} connection successful!`);
+      return { success: true, configIndex, message: `Config ${configIndex + 1} working` };
+    } catch (error) {
+      console.error(`[EmailService] Config ${configIndex + 1} failed:`, error.message);
+    }
+  }
+  
+  console.error('[EmailService] All email configurations failed');
+  return { success: false, error: 'All email configurations failed' };
+};
 
 
-// Send password reset email
+// Send password reset email with retry logic
 const sendPasswordResetEmail = async (email, resetToken, userName = 'User') => {
-  try {
-    const transporter = createTransporter();
-    
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}`;
-    
-    const mailOptions = {
+  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}`;
+  
+  const mailOptions = {
       from: {
         name: 'Findr Platform',
         address: process.env.EMAIL_USER
@@ -179,13 +242,28 @@ const sendPasswordResetEmail = async (email, resetToken, userName = 'User') => {
       `
     };
 
-    const result = await transporter.sendMail(mailOptions);
-    console.log('Password reset email sent successfully:', result.messageId);
-    return { success: true, messageId: result.messageId };
-    
-  } catch (error) {
-    console.error('Error sending password reset email:', error);
-    return { success: false, error: error.message };
+  // Try different SMTP configurations
+  for (let configIndex = 0; configIndex < 3; configIndex++) {
+    try {
+      console.log(`[PasswordReset] Attempting to send email with config ${configIndex + 1}...`);
+      const transporter = createTransporter(configIndex);
+      
+      const result = await transporter.sendMail(mailOptions);
+      console.log(`[PasswordReset] Email sent successfully with config ${configIndex + 1}:`, result.messageId);
+      return { success: true, messageId: result.messageId, configUsed: configIndex + 1 };
+      
+    } catch (error) {
+      console.error(`[PasswordReset] Config ${configIndex + 1} failed:`, error.message);
+      
+      // If this is the last config, return the error
+      if (configIndex === 2) {
+        console.error('[PasswordReset] All SMTP configurations failed');
+        return { success: false, error: error.message };
+      }
+      
+      // Otherwise, try the next configuration
+      console.log(`[PasswordReset] Trying next configuration...`);
+    }
   }
 };
 
@@ -863,5 +941,7 @@ module.exports = {
   sendRMServicePurchaseEmail,
   sendQuoteRequestConfirmationEmail,
   sendQuoteRequestAdminNotificationEmail,
-  sendJobNotificationEmail
+  sendJobNotificationEmail,
+  testEmailConnection,
+  createTransporter
 };
