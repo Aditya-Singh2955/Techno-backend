@@ -8,7 +8,7 @@ const sendPasswordResetEmail = async (email, resetToken, name = "User") => {
             }/login/reset-password?token=${resetToken}`;
 
         const { data, error } = await resend.emails.send({
-            from: `Findr Team <${process.env.EMAIL_USER}>`, // change after domain verify
+            from: "Findr <onboarding@resend.dev>",
             to: email,
             subject: "Password Reset Request - Findr",
             text: `Hello ${name},
