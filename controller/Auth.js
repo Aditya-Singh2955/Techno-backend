@@ -2,7 +2,6 @@ const User = require("../model/UserSchemas");
 const Employer = require("../model/EmployerSchema");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
-const { sendPasswordResetEmail, sendWelcomeEmail } = require("../services/emailService");
 require("dotenv").config();
 
 
@@ -53,7 +52,6 @@ exports.signup = async (req, res) => {
       } else {
         // Referral code is invalid, but we'll still create the account
         // You can choose to return an error here if you want strict validation
-        console.log(`Invalid referral code provided: ${referralCode}`);
       }
     }
 
@@ -156,41 +154,6 @@ exports.signup = async (req, res) => {
       newUser = await Model.findById(newUser._id);
     }
 
-    setImmediate(async () => {
-      const recipientEmail = email;
-      const recipientName = newUser.name || newUser.fullName || email.split('@')[0];
-      const recipientRole = newUser.role;
-      try {
-        console.log('[WelcomeEmail] Triggering send', {
-          email: recipientEmail,
-          name: recipientName,
-          role: recipientRole
-        });
-        const emailResult = await sendWelcomeEmail(
-          recipientEmail,
-          recipientName,
-          recipientRole
-        );
-        if (emailResult?.success) {
-          console.log('[WelcomeEmail] Sent successfully', {
-            messageId: emailResult.messageId,
-            email: recipientEmail
-          });
-        } else {
-          console.error('[WelcomeEmail] Failed to send', {
-            error: emailResult?.error || 'Unknown error',
-            email: recipientEmail
-          });
-        }
-      } catch (error) {
-        console.error('[WelcomeEmail] Exception during send', {
-          error: error?.message || error,
-          stack: error?.stack,
-          email: recipientEmail
-        });
-      }
-    });
-
     const token = jwt.sign(
       { 
         id: newUser._id,
@@ -214,7 +177,6 @@ exports.signup = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Signup error:", error);
     res.status(500).json({ 
       message: "Registration failed", 
       error: error.message 
@@ -293,7 +255,6 @@ exports.login = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Login error:", error);
     res.status(500).json({ 
       message: "Login failed", 
       error: error.message 
@@ -351,7 +312,6 @@ exports.completeEmployerProfile = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Complete profile error:", error);
     res.status(500).json({ 
       message: "Failed to complete profile", 
       error: error.message 
@@ -522,7 +482,6 @@ exports.getUserProfileDetails = async (req, res) => {
       data: responseData
     });
   } catch (error) {
-    console.error("Get profile details error:", error);
     res.status(500).json({ 
       success: false,
       message: "Failed to fetch profile details",
@@ -765,7 +724,6 @@ exports.updateProfile = async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: "Failed to update profile", error: error.message });
   }
 };
@@ -841,22 +799,6 @@ exports.checkProfileEligibility = async (req, res) => {
     const percentage = Math.round((completed / totalFields) * 100);
     const canApply = percentage >= 80 && hasResume;
 
-    // Debug logging for troubleshooting
-    console.log('📊 PROFILE ELIGIBILITY CHECK:', {
-      userId: userId,
-      completed: completed,
-      totalFields: totalFields,
-      percentage: percentage,
-      hasResume: hasResume,
-      canApply: canApply,
-      resumeFields: {
-        resumeDocument: user.resumeDocument,
-        resumeUrl: user.resumeUrl,
-        resume: user.resume,
-        resumeAndDocs: user.jobPreferences?.resumeAndDocs
-      }
-    });
-
     res.status(200).json({
       success: true,
       data: {
@@ -877,7 +819,6 @@ exports.checkProfileEligibility = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Check profile eligibility error:", error);
     res.status(500).json({ 
       success: false,
       message: "Failed to check profile eligibility",
@@ -886,20 +827,12 @@ exports.checkProfileEligibility = async (req, res) => {
   }
 };
 
-// Forgot Password - Send reset email
+// Forgot Password - Generate reset token
 exports.forgotPassword = async (req, res) => {
   try {
-    console.log('\n📧 ========================================');
-    console.log('📧 FORGOT PASSWORD REQUEST RECEIVED');
-    console.log('📧 ========================================');
-    console.log(`📧 Time: ${new Date().toISOString()}`);
-    console.log(`📧 IP: ${req.ip || req.connection.remoteAddress}`);
-    
     const { email } = req.body;
-    console.log(`📧 Email: ${email || 'NOT PROVIDED'}`);
 
     if (!email) {
-      console.log('❌ Email is missing in request body');
       return res.status(400).json({
         success: false,
         message: "Email is required"
@@ -907,25 +840,20 @@ exports.forgotPassword = async (req, res) => {
     }
 
     // Find user in both collections
-    console.log(`🔍 [ForgotPassword] Searching for user with email: ${email}`);
     let user = await User.findOne({ email });
     let userRole = 'jobseeker';
     
     if (!user) {
-      console.log(`🔍 [ForgotPassword] Not found in User collection, checking Employer collection...`);
       user = await Employer.findOne({ email });
       userRole = 'employer';
     }
 
     if (!user) {
-      console.log(`❌ [ForgotPassword] No user found with email: ${email}`);
       return res.status(404).json({
         success: false,
         message: "No account found with this email address"
       });
     }
-
-    console.log(`✅ [ForgotPassword] User found: ${userRole} with ID: ${user._id}`);
 
     // Generate reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
@@ -936,66 +864,9 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpiry = resetTokenExpiry;
     await user.save();
 
-    // Send password reset email
-    console.log('\n📨 [ForgotPassword] User found, preparing to send email:');
-    console.log(`📨   - User ID: ${user._id}`);
-    console.log(`📨   - User Role: ${userRole}`);
-    console.log(`📨   - User Name: ${user.name || user.fullName || 'N/A'}`);
-    console.log(`📨   - Reset Token Generated: ${resetToken.substring(0, 20)}...`);
-
-    const emailResult = await sendPasswordResetEmail(
-      email, 
-      resetToken, 
-      user.name || user.fullName || 'User'
-    );
-
-    if (!emailResult.success) {
-      // Log detailed error information for debugging
-      console.error('\n❌ [ForgotPassword] ✗ Failed to send password reset email:');
-      console.error(`❌   - Error: ${emailResult.error}`);
-      console.error(`❌   - Error Code: ${emailResult.errorCode || 'N/A'}`);
-      console.error(`❌   - Error Response: ${emailResult.errorResponse || 'N/A'}`);
-      console.error(`❌   - Email: ${email}`);
-      console.error(`❌   - User Role: ${userRole}`);
-      console.error(`❌   - User ID: ${user._id}`);
-      if (emailResult.errorDetails) {
-        console.error('❌   - Full Error Details:', JSON.stringify(emailResult.errorDetails, null, 2));
-      }
-
-      // In production, still return success to user for security (don't reveal if email exists)
-      // But log the error for admin debugging
-      if (process.env.NODE_ENV === 'production') {
-        // Log to error tracking service if available
-        console.error('[ForgotPassword] PRODUCTION EMAIL FAILURE - Check email configuration:', {
-          hasEmailUser: !!process.env.EMAIL_USER,
-          hasEmailPass: !!process.env.EMAIL_PASS,
-          emailUser: process.env.EMAIL_USER?.substring(0, 5) + '...',
-          errorCode: emailResult.errorCode
-        });
-      }
-
-      // Still return success to user for security (don't reveal if email exists)
-      return res.status(200).json({
-        success: true,
-        message: "Password reset link sent to your email",
-        // In development, also return the URL and error for testing
-        resetUrl: process.env.NODE_ENV === 'development' ? 
-          `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}` : 
-          undefined,
-        // Only show error details in development
-        error: process.env.NODE_ENV === 'development' ? emailResult.error : undefined
-      });
-    }
-
-    console.log('\n✅ [ForgotPassword] ✓ Password reset email sent successfully:');
-    console.log(`✅   - Email: ${email}`);
-    console.log(`✅   - Message ID: ${emailResult.messageId}`);
-    console.log(`✅   - User Role: ${userRole}`);
-    console.log(`✅   - User ID: ${user._id}\n`);
-
     res.status(200).json({
       success: true,
-      message: "Password reset link sent to your email",
+      message: "Password reset token generated successfully",
       // In development, also return the URL for testing
       resetUrl: process.env.NODE_ENV === 'development' ? 
         `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}` : 
@@ -1003,9 +874,6 @@ exports.forgotPassword = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('\n❌ [ForgotPassword] Unexpected error:', error);
-    console.error(`❌   - Error Message: ${error.message}`);
-    console.error(`❌   - Stack: ${error.stack}\n`);
     res.status(500).json({
       success: false,
       message: "Failed to process password reset request",
@@ -1052,7 +920,6 @@ exports.validateResetToken = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Validate reset token error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to validate reset token",
@@ -1165,7 +1032,6 @@ exports.followSocialMedia = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Follow social media error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to process follow action",
@@ -1230,87 +1096,10 @@ exports.resetPassword = async (req, res) => {
 // Test Email Configuration Endpoint (for debugging in production)
 exports.testEmailConfig = async (req, res) => {
   try {
-    const { sendPasswordResetEmail } = require("../services/emailService");
-    const { verifyTransporter, createTransporter, getEmailConfig } = require("../services/emails/sendPasswordResetEmail");
-    
-    // Check if email credentials are configured
-    let configStatus = {
-      hasEmailUser: !!process.env.EMAIL_USER,
-      hasEmailPass: !!process.env.EMAIL_PASS,
-      emailUser: process.env.EMAIL_USER ? process.env.EMAIL_USER.substring(0, 5) + '...' : 'NOT SET',
-      emailPassLength: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.length : 0,
-      nodeEnv: process.env.NODE_ENV,
-      frontendUrl: process.env.FRONTEND_URL
-    };
-
-    // Try to get email config (will throw if missing)
-    let emailConfig;
-    try {
-      emailConfig = getEmailConfig();
-      configStatus.configValid = true;
-    } catch (error) {
-      configStatus.configValid = false;
-      configStatus.configError = error.message;
-    }
-
-    // Try to verify transporter
-    let verificationResult = {
-      verified: false,
-      error: null
-    };
-
-    if (configStatus.configValid) {
-      try {
-        const transporter = createTransporter();
-        const verified = await verifyTransporter(transporter);
-        verificationResult.verified = verified;
-        if (transporter && transporter.close) {
-          transporter.close();
-        }
-      } catch (error) {
-        verificationResult.error = error.message;
-        verificationResult.errorCode = error.code;
-        verificationResult.errorResponse = error.response;
-      }
-    }
-
-    // If test email is requested
-    const { testEmail } = req.query;
-    let testEmailResult = null;
-
-    if (testEmail) {
-      try {
-        const testToken = crypto.randomBytes(32).toString('hex');
-        const result = await sendPasswordResetEmail(
-          testEmail,
-          testToken,
-          'Test User'
-        );
-        testEmailResult = {
-          success: result.success,
-          messageId: result.messageId,
-          error: result.error,
-          errorCode: result.errorCode
-        };
-      } catch (error) {
-        testEmailResult = {
-          success: false,
-          error: error.message,
-          errorCode: error.code
-        };
-      }
-    }
-
     res.status(200).json({
       success: true,
-      message: "Email configuration test completed",
-      config: configStatus,
-      verification: verificationResult,
-      testEmail: testEmailResult,
-      instructions: {
-        verifyOnly: "Use GET /api/v1/auth/test-email-config to check configuration",
-        sendTestEmail: "Use GET /api/v1/auth/test-email-config?testEmail=your@email.com to send a test email"
-      }
+      message: "Email functionality has been disabled",
+      note: "Email sending has been removed from the application"
     });
 
   } catch (error) {

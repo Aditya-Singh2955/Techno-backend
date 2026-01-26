@@ -285,101 +285,6 @@ exports.createApplication = async (req, res) => {
       data: application,
       pointsAwarded: 0
     });
-
-    // Fire-and-forget emails AFTER response
-    setImmediate(async () => {
-      try {
-        const { sendNewApplicationNotificationEmail, sendApplicationConfirmationEmail } = require('../services/emailService');
-        
-        // Get employer data
-        const employer = await Employer.findById(job.employer).select('companyName companyEmail email contactEmail name');
-        const employerEmail = employer?.companyEmail || employer?.email || employer?.contactEmail;
-        const employerName = employer?.name || employer?.companyName || 'Employer';
-        const applicantName = applicant.fullName || applicant.name || 'Candidate';
-        
-        console.log('[ApplicationEmail] Starting email process', {
-          employerEmail,
-          applicantEmail: applicant.email,
-          applicantName,
-          jobTitle: job.title
-        });
-
-        // Send BOTH emails - don't wait for employer email to complete
-        const emailPromises = [];
-
-        // 1. Send employer notification email
-        if (employerEmail) {
-          console.log('[ApplicationEmail] Sending to employer:', employerEmail);
-          const employerPromise = sendNewApplicationNotificationEmail(
-            employerEmail,
-            employerName,
-            job.title,
-            applicantName,
-            application.appliedDate || new Date()
-          ).then(result => {
-            if (result?.success) {
-              console.log('[ApplicationEmail] ✓ Employer notification sent', { 
-                messageId: result.messageId, 
-                employerEmail 
-              });
-            } else {
-              console.error('[ApplicationEmail] ✗ Employer notification failed', { 
-                error: result?.error, 
-                employerEmail 
-              });
-            }
-            return result;
-          }).catch(err => {
-            console.error('[ApplicationEmail] ✗ Employer notification error:', err);
-            return { success: false, error: err.message };
-          });
-          emailPromises.push(employerPromise);
-        } else {
-          console.warn('[ApplicationEmail] No employer email found');
-        }
-
-        // 2. Send applicant confirmation email
-        if (applicant.email) {
-          console.log('[ApplicationEmail] Sending to applicant:', applicant.email);
-          const applicantPromise = sendApplicationConfirmationEmail(
-            applicant.email,
-            applicantName,
-            job.title,
-            job.companyName || 'Company',
-            application.appliedDate || new Date()
-          ).then(result => {
-            if (result?.success) {
-              console.log('[ApplicationEmail] ✓ Applicant confirmation sent', { 
-                messageId: result.messageId, 
-                applicantEmail: applicant.email 
-              });
-            } else {
-              console.error('[ApplicationEmail] ✗ Applicant confirmation failed', { 
-                error: result?.error, 
-                applicantEmail: applicant.email 
-              });
-            }
-            return result;
-          }).catch(err => {
-            console.error('[ApplicationEmail] ✗ Applicant confirmation error:', err);
-            return { success: false, error: err.message };
-          });
-          emailPromises.push(applicantPromise);
-        } else {
-          console.error('[ApplicationEmail] ✗ No applicant email found!', {
-            applicantId: applicant._id,
-            applicantData: applicant
-          });
-        }
-
-        // Wait for all emails to complete (but don't block the response)
-        await Promise.allSettled(emailPromises);
-        console.log('[ApplicationEmail] All emails processed');
-        
-      } catch (err) {
-        console.error('[ApplicationEmail] Fatal error in email process:', err);
-      }
-    });
   } catch (error) {
     console.error('[CreateApplication] Controller error:', error);
     res.status(500).json({ 
@@ -512,41 +417,6 @@ exports.updateApplicationStatus = async (req, res) => {
     res.json({
       message: "Application status updated successfully",
       data: updatedApplication
-    });
-
-    // Fire-and-forget status email AFTER response
-    setImmediate(async () => {
-      try {
-        const { sendApplicationStatusUpdateEmail } = require('../services/emailService');
-        const applicant = updatedApplication.applicantDetails || await User.findById(application.applicantId).select('email name fullName');
-        const job = await Job.findById(application.jobId).select('title companyName');
-        const applicantName = applicant?.fullName || applicant?.name || 'Job Seeker';
-        const interviewInfo = status === 'interview_scheduled' ? { date: updateData.interviewDate, mode: interviewMode } : null;
-        console.log('[StatusEmail] Triggering status email', {
-          applicantEmail: applicant?.email,
-          applicantName,
-          jobTitle: job?.title,
-          companyName: job?.companyName,
-          status
-        });
-        if (applicant?.email) {
-          const statusEmailResult = await sendApplicationStatusUpdateEmail(
-            applicant.email,
-            applicantName,
-            job?.title || 'Job',
-            job?.companyName || 'Company',
-            status,
-            interviewInfo
-          );
-          if (statusEmailResult?.success) {
-            console.log('[StatusEmail] Sent successfully', { messageId: statusEmailResult.messageId, applicantEmail: applicant.email });
-          } else {
-            console.error('[StatusEmail] Failed to send', { error: statusEmailResult?.error, applicantEmail: applicant.email });
-          }
-        }
-      } catch (err) {
-        console.error('Post-response email error (updateApplicationStatus):', err);
-      }
     });
 
     if (status === 'hired' && application.status !== 'hired') {
@@ -1239,23 +1109,6 @@ exports.createReferralApplication = async (req, res) => {
       data: {
         application,
         userCreated: !await User.findOne({ email, _id: { $ne: userB._id } })
-      }
-    });
-
-    // Fire-and-forget confirmation email AFTER response
-    setImmediate(async () => {
-      try {
-        const { sendApplicationConfirmationEmail } = require('../services/emailService');
-        const applicantName = userB.fullName || userB.name || friendName || 'Job Seeker';
-        await sendApplicationConfirmationEmail(
-          userB.email,
-          applicantName,
-          job.title,
-          job.companyName || 'Company',
-          application.appliedDate || new Date()
-        );
-      } catch (err) {
-        console.error('Post-response email error (createReferralApplication):', err);
       }
     });
   } catch (error) {

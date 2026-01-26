@@ -193,54 +193,6 @@ exports.createOrder = async (req, res) => {
         pointsAwarded: 100
       }
     });
-
-    // Fire-and-forget email AFTER response
-    setImmediate(async () => {
-      try {
-        const { sendRMServicePurchaseEmail } = require('../services/emailService');
-        const userName = user.fullName || user.name || 'Job Seeker';
-        const userEmail = user.email;
-        
-        if (userEmail) {
-          console.log('[OrderEmail] Sending RM service purchase confirmation', {
-            userEmail,
-            userName,
-            service: service
-          });
-          
-          const emailResult = await sendRMServicePurchaseEmail(
-            userEmail,
-            userName,
-            {
-              service,
-              price,
-              pointsUsed,
-              couponCode,
-              totalAmount,
-              orderDate: order.orderDate
-            }
-          );
-          
-          if (emailResult?.success) {
-            console.log('[OrderEmail] ✓ RM service purchase email sent', { 
-              messageId: emailResult.messageId, 
-              userEmail 
-            });
-          } else {
-            console.error('[OrderEmail] ✗ RM service purchase email failed', { 
-              error: emailResult?.error, 
-              userEmail 
-            });
-          }
-        } else {
-          console.error('[OrderEmail] ✗ No user email found!', {
-            userId: user._id
-          });
-        }
-      } catch (err) {
-        console.error('[OrderEmail] Fatal error in email process:', err);
-      }
-    });
   } catch (error) {
     res.status(500).json({ 
       message: "Failed to place order", 

@@ -34,28 +34,6 @@ exports.addGrievance = async (req, res) => {
       data: grievance
     });
 
-    setImmediate(async () => {
-      try {
-        const { sendContactFormEmail } = require('../services/emailService');
-        const adminEmail = process.env.ADMIN_EMAIL || 'contact@findr.ae';
-
-        if (sendContactFormEmail) {
-          const emailResult = await sendContactFormEmail(
-            adminEmail,
-            name,
-            email,
-            subject,
-            message
-          );
-          if (emailResult?.success) {
-            console.log('[ContactEmail] Contact form notification sent', { messageId: emailResult.messageId });
-          }
-        }
-      } catch (err) {
-        console.error('[ContactEmail] Failed to send contact form email:', err);
-      }
-    });
-
   } catch (error) {
     console.error('Error creating grievance:', error);
     res.status(500).json({
