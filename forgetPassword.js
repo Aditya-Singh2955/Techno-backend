@@ -7,7 +7,7 @@ const sendPasswordResetEmail = async (email, resetToken, name = "User") => {
         const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/login/reset-password?token=${resetToken}`;
 
         const { data, error } = await resend.emails.send({
-            from: "Findr <onboarding@resend.dev>",
+            from: "Findr <no-reply@findr.ae>",
             to: email,
             subject: "Password Reset Request - Findr",
             text: `Hello ${name},

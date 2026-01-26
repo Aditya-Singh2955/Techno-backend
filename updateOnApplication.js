@@ -34,7 +34,7 @@ const sendApplicationStatusUpdateEmail = async (email, applicantName, jobTitle, 
         }
 
         const { data, error } = await resend.emails.send({
-            from: "Findr <onboarding@resend.dev>",
+            from: "Findr <no-reply@findr.ae>",
             to: email,
             subject: subject,
             text: `Hello ${applicantName},

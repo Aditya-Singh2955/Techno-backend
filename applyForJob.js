@@ -7,7 +7,7 @@ const sendApplicationConfirmationEmail = async (email, applicantName, jobTitle, 
         const applicationUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/jobseeker/applications`;
 
         const { data, error } = await resend.emails.send({
-            from: "Findr <onboarding@resend.dev>",
+            from: "Findr <no-reply@findr.ae>",
             to: email,
             subject: `Application Confirmed - ${jobTitle} at ${companyName}`,
             text: `Hello ${applicantName},
@@ -37,7 +37,7 @@ const sendNewApplicationNotificationEmail = async (email, employerName, jobTitle
         const applicationsUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/employer/applications`;
 
         const { data, error } = await resend.emails.send({
-            from: "Findr <onboarding@resend.dev>",
+            from: "Findr <no-reply@findr.ae>",
             to: email,
             subject: `New Application Received - ${jobTitle}`,
             text: `Hello ${employerName},

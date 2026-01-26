@@ -7,7 +7,7 @@ const sendJobPostedEmail = async (email, employerName, jobTitle, companyName, jo
         const jobUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/jobs/${jobId}`;
 
         const { data, error } = await resend.emails.send({
-            from: "Findr <onboarding@resend.dev>",
+            from: "Findr <no-reply@findr.ae>",
             to: email,
             subject: `Job Posted Successfully - ${jobTitle}`,
             text: `Hello ${employerName},
@@ -37,7 +37,7 @@ const sendJobNotificationEmail = async (email, jobSeekerName, jobTitle, companyN
         const jobUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/jobs/${jobId}`;
 
         const { data, error } = await resend.emails.send({
-            from: "Findr <onboarding@resend.dev>",
+            from: "Findr <no-reply@findr.ae>",
             to: email,
             subject: `New Job Opportunity - ${jobTitle} at ${companyName}`,
             text: `Hello ${jobSeekerName},

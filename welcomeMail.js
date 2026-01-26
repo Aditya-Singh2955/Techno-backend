@@ -9,7 +9,7 @@ const sendWelcomeEmail = async (email, name, role) => {
             : `Welcome to Findr! We're excited to help you find your dream job.`;
 
         const { data, error } = await resend.emails.send({
-            from: "Findr <onboarding@resend.dev>",
+            from: "Findr <no-reply@findr.ae>",
             to: email,
             subject: `Welcome to Findr, ${name}! 🎉`,
             text: `Hello ${name},
