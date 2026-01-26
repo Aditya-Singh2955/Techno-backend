@@ -864,13 +864,27 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpiry = resetTokenExpiry;
     await user.save();
 
+    // Send response first
     res.status(200).json({
       success: true,
-      message: "Password reset token generated successfully",
-      // In development, also return the URL for testing
-      resetUrl: process.env.NODE_ENV === 'development' ? 
-        `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login/reset-password?token=${resetToken}` : 
-        undefined
+      message: "Password reset link sent to your email"
+    });
+
+    // Send email asynchronously (fire-and-forget)
+    setImmediate(async () => {
+      try {
+        const { sendPasswordResetEmail } = require('../forgetPassword');
+        const userName = userRole === 'jobseeker' 
+          ? (user.fullName || user.name || 'User')
+          : (user.name || user.companyName || 'User');
+        
+        const emailResult = await sendPasswordResetEmail(email, resetToken, userName);
+        if (!emailResult.success) {
+          console.error('Password reset email failed:', emailResult.error);
+        }
+      } catch (err) {
+        console.error('Password reset email error:', err.message);
+      }
     });
 
   } catch (error) {
