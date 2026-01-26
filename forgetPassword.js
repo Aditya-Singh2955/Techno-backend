@@ -1,11 +1,10 @@
-import { Resend } from "resend";
+const { Resend } = require("resend");
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const sendPasswordResetEmail = async (email, resetToken, name = "User") => {
     try {
-        const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"
-            }/login/reset-password?token=${resetToken}`;
+        const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/login/reset-password?token=${resetToken}`;
 
         const { data, error } = await resend.emails.send({
             from: "Findr <onboarding@resend.dev>",
@@ -30,4 +29,4 @@ This link expires in 15 minutes.
     }
 };
 
-export { sendPasswordResetEmail };
+module.exports = { sendPasswordResetEmail };

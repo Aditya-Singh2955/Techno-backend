@@ -20,19 +20,64 @@ exports.createJob = async (req, res) => {
     const newJob = new Job(jobData);
     await newJob.save();
 
-    // Respond FIRST
     res.status(201).json({
       message: "Job created successfully",
       data: newJob
     });
 
-    // Award employer points for posting a job (+30)
     setImmediate(async () => {
       try {
         await Employer.findByIdAndUpdate(employerId, { $inc: { points: 30 } });
-        console.log('[Points] +30 awarded to employer for posting a job:', employerId);
-      } catch (pointsErr) {
-        console.error('[Points] Failed to award posting points:', pointsErr);
+        
+        const { sendJobPostedEmail, sendJobNotificationEmail } = require('../jobPost');
+        const employer = await Employer.findById(employerId).select('email name companyName');
+        const employerEmail = employer?.email;
+        const employerName = employer?.name || employer?.companyName || 'Employer';
+        const companyName = employer?.companyName || 'Company';
+        
+        if (employerEmail) {
+          await sendJobPostedEmail(
+            employerEmail,
+            employerName,
+            newJob.title,
+            companyName,
+            newJob._id.toString()
+          );
+        }
+
+        // Send job notification emails to all job seekers
+        const jobSeekers = await User.find({ role: 'jobseeker' }).select('email fullName name');
+        const jobType = Array.isArray(newJob.jobType) ? newJob.jobType.join(', ') : newJob.jobType;
+        
+        const batchSize = 10;
+        for (let i = 0; i < jobSeekers.length; i += batchSize) {
+          const batch = jobSeekers.slice(i, i + batchSize);
+          const emailPromises = batch.map(async (jobSeeker) => {
+            if (jobSeeker.email) {
+              try {
+                await sendJobNotificationEmail(
+                  jobSeeker.email,
+                  jobSeeker.fullName || jobSeeker.name || 'Job Seeker',
+                  newJob.title,
+                  companyName,
+                  newJob.location || 'Not specified',
+                  jobType || 'Not specified',
+                  newJob._id.toString()
+                );
+              } catch (err) {
+                // Individual email error handled silently
+              }
+            }
+          });
+          
+          await Promise.allSettled(emailPromises);
+          
+          if (i + batchSize < jobSeekers.length) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      } catch (err) {
+        // Email error handled silently
       }
     });
   } catch (error) {

@@ -176,6 +176,22 @@ exports.signup = async (req, res) => {
       token
     });
 
+    setImmediate(async () => {
+      try {
+        const { sendWelcomeEmail } = require('../welcomeMail');
+        const userName = role === "jobseeker" 
+          ? (newUser.fullName || newUser.name || 'User')
+          : (newUser.name || newUser.companyName || 'User');
+        
+        const emailResult = await sendWelcomeEmail(email, userName, role);
+        if (!emailResult.success) {
+          console.error('Welcome email failed:', emailResult.error);
+        }
+      } catch (err) {
+        console.error('Welcome email error:', err.message);
+      }
+    });
+
   } catch (error) {
     res.status(500).json({ 
       message: "Registration failed", 
@@ -1072,11 +1088,15 @@ exports.resetPassword = async (req, res) => {
       resetPasswordExpiry: { $gt: new Date() }
     });
 
+    let Model = User;
     if (!user) {
       user = await Employer.findOne({
         resetPasswordToken: token,
         resetPasswordExpiry: { $gt: new Date() }
       });
+      if (user) {
+        Model = Employer;
+      }
     }
 
     if (!user) {
@@ -1085,12 +1105,28 @@ exports.resetPassword = async (req, res) => {
         message: "Invalid or expired reset token"
       });
     }
+    
+    // Update password and clear reset token using findByIdAndUpdate
+    const updateResult = await Model.findByIdAndUpdate(
+      user._id,
+      {
+        $set: {
+          password: password
+        },
+        $unset: {
+          resetPasswordToken: "",
+          resetPasswordExpiry: ""
+        }
+      },
+      { new: true, runValidators: true }
+    );
 
-    // Update password and clear reset token
-    user.password = password;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpiry = undefined;
-    await user.save();
+    if (!updateResult) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to update password"
+      });
+    }
 
     res.status(200).json({
       success: true,

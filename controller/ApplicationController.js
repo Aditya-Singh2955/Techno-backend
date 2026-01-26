@@ -192,19 +192,11 @@ exports.createApplication = async (req, res) => {
       status: 'withdrawn' 
     });
 
-    // Get applicant details for email (do before response)
+    // Get applicant details
     const applicant = await User.findById(applicantId).select('email fullName name');
     if (!applicant) {
       return res.status(404).json({ message: "Applicant not found" });
     }
-
-    // IMPORTANT: Log applicant data to debug
-    console.log('[CreateApplication] Applicant data:', {
-      id: applicant._id,
-      email: applicant.email,
-      fullName: applicant.fullName,
-      name: applicant.name
-    });
 
     let application;
     
@@ -285,8 +277,42 @@ exports.createApplication = async (req, res) => {
       data: application,
       pointsAwarded: 0
     });
+
+    setImmediate(async () => {
+      try {
+        const { sendApplicationConfirmationEmail, sendNewApplicationNotificationEmail } = require('../applyForJob');
+        const applicantName = applicant.fullName || applicant.name || 'Job Seeker';
+        
+        // Send email to jobseeker
+        if (applicant.email) {
+          await sendApplicationConfirmationEmail(
+            applicant.email,
+            applicantName,
+            job.title,
+            job.companyName || 'Company',
+            application.appliedDate || new Date()
+          );
+        }
+
+        // Send email to employer
+        const employer = await Employer.findById(job.employer).select('email companyEmail contactPerson name companyName');
+        const employerEmail = employer?.companyEmail || employer?.email || employer?.contactPerson?.email;
+        const employerName = employer?.name || employer?.companyName || 'Employer';
+        
+        if (employerEmail) {
+          await sendNewApplicationNotificationEmail(
+            employerEmail,
+            employerName,
+            job.title,
+            applicantName,
+            application.appliedDate || new Date()
+          );
+        }
+      } catch (err) {
+        // Email error handled silently
+      }
+    });
   } catch (error) {
-    console.error('[CreateApplication] Controller error:', error);
     res.status(500).json({ 
       message: "Failed to submit application", 
       error: error.message 
@@ -413,10 +439,32 @@ exports.updateApplicationStatus = async (req, res) => {
       });
     }
 
-    // Send HTTP response FIRST
     res.json({
       message: "Application status updated successfully",
       data: updatedApplication
+    });
+
+    setImmediate(async () => {
+      try {
+        const { sendApplicationStatusUpdateEmail } = require('../updateOnApplication');
+        const applicant = updatedApplication.applicantDetails || await User.findById(application.applicantId).select('email fullName name');
+        const job = await Job.findById(application.jobId).select('title companyName');
+        const applicantName = applicant?.fullName || applicant?.name || 'Job Seeker';
+        const interviewInfo = status === 'interview_scheduled' ? { date: updateData.interviewDate, mode: interviewMode } : null;
+        
+        if (applicant?.email) {
+          await sendApplicationStatusUpdateEmail(
+            applicant.email,
+            applicantName,
+            job?.title || 'Job',
+            job?.companyName || 'Company',
+            status,
+            interviewInfo
+          );
+        }
+      } catch (err) {
+        // Email error handled silently
+      }
     });
 
     if (status === 'hired' && application.status !== 'hired') {
