@@ -12,16 +12,12 @@ const sendApplicationConfirmationEmail = async (email, applicantName, jobTitle, 
             subject: `Application Confirmed - ${jobTitle} at ${companyName}`,
             text: `Hello ${applicantName},
 
-Your application for "${jobTitle}" at ${companyName} has been successfully submitted!
-
-Application Date: ${new Date(appliedDate).toLocaleDateString()}
-
-View your applications:
-${applicationUrl}
-
-The employer will review your application and contact you if you're shortlisted. Good luck!
-
-– Findr Team`,
+            Your application for "${jobTitle}" at ${companyName} has been successfully submitted!
+            Application Date: ${new Date(appliedDate).toLocaleDateString()}
+            View your applications:
+            ${applicationUrl}
+            The employer will review your application and contact you if you're shortlisted. Good luck!
+            - Findr Team`,
         });
 
         if (error) throw error;
@@ -42,17 +38,13 @@ const sendNewApplicationNotificationEmail = async (email, employerName, jobTitle
             subject: `New Application Received - ${jobTitle}`,
             text: `Hello ${employerName},
 
-You have received a new application for "${jobTitle}".
-
-Applicant: ${applicantName}
-Application Date: ${new Date(appliedDate).toLocaleDateString()}
-
-View all applications:
-${applicationsUrl}
-
-Review the candidate's profile and application to proceed with the next steps.
-
-– Findr Team`,
+            You have received a new application for "${jobTitle}".
+            Applicant: ${applicantName}
+            Application Date: ${new Date(appliedDate).toLocaleDateString()}
+            View all applications:
+            ${applicationsUrl}
+            Review the candidate's profile and application to proceed with the next steps.
+            – Findr Team`,
         });
 
         if (error) throw error;
